@@ -1,115 +1,3 @@
-// `timescale 1 ps / 1 ps
-
-// module fifo_stream_test_tb();
-//     parameter SYS_CLOCK_PERIOD = 10000;        //100MHz
-
-//         reg		clk;
-//         reg		reset;
-//         reg  [31:0]   in_flow_data;
-//         reg           in_flow_valid;
-//         wire [7:0]    fifo_usedw;
-//         wire		    out_stream_valid;
-//         reg 		    out_stream_ready;
-//         wire [31:0]	out_stream_data;
-
-//     fifo_stream_test uut(
-// /*input		    */ .clk             (clk),
-// /*input		    */ .reset           (reset),
-// /*input  [31:0] */ .in_flow_data    (in_flow_data),
-// /*input         */ .in_flow_valid   (in_flow_valid),
-// /*output [7:0]  */ .fifo_usedw      (fifo_usedw),
-// /*output		*/ .out_stream_valid(out_stream_valid),
-// /*input 		*/ .out_stream_ready(out_stream_ready),
-// /*output [31:0]	*/ .out_stream_data (out_stream_data)
-//     );
-
-// task push_to_fifo_head(
-// 	input [31:0] i_data
-// );
-// begin
-// 	@(posedge clk); 
-// 	in_flow_valid = 1;
-// 	in_flow_data = i_data;
-// end
-// endtask
-
-// task push_to_fifo_tail();
-// begin
-// 	@(posedge clk); 
-// 	in_flow_valid = 0;
-// 	in_flow_data = 0;
-// end
-// endtask
-
-// task push_to_fifo_single(
-// 	input [31:0] i_data
-// );
-// begin
-// 	@(posedge clk); 
-// 	in_flow_valid = 1;
-// 	in_flow_data = i_data;
-//     push_to_fifo_tail();
-// end
-// endtask
-
-
-// bit [31:0] fifo_content [] = {  32'h11111111, 
-//                                 32'h22222222,
-// 					            32'h33333333,
-//                                 32'h44444444
-// 				       };
-
-// initial begin
-//     clk = 1;
-//     forever
-//         #(SYS_CLOCK_PERIOD/2) clk = !clk;
-// end
-
-
-// initial begin
-//     in_flow_data <= 1'b0;
-//     in_flow_valid <= 1'b0;
-//     out_stream_ready <= 1'b0;
-//     reset <= 1'b0;
-//     #100_000
-//     reset <= 1'b1;
-//     #100_000
-//     reset <= 1'b0;
-//     repeat (20) @(posedge clk);
-//     foreach(fifo_content[j]) begin
-//         $display("fifo value = 0x%08h", fifo_content[j]);
-//         push_to_fifo_head(fifo_content[j]);
-//     end
-//     push_to_fifo_tail();
-//     repeat (20) @(posedge clk);
-//     out_stream_ready <= 1'b1;
-//     @(posedge clk);
-//     out_stream_ready <= 1'b0;
-//     @(posedge clk);
-//     out_stream_ready <= 1'b1;
-//     repeat (50) @(posedge clk);
-//     $stop;
-// end
-
-
-
-// task automatic print_stream_transaction( );
-//   @(posedge clk iff (out_stream_ready && out_stream_valid));
-//   $display("[%t] stream data=0x%08x",
-//            $time,
-//            out_stream_data
-//            );
-// endtask
-
-// initial begin
-//   forever begin
-//     print_stream_transaction();
-//   end
-// end
-
-
-// endmodule
-
 `timescale 1 ps / 1 ps
 
 module fifo_stream_test_tb();
@@ -148,13 +36,11 @@ module fifo_stream_test_tb();
         .out_stream_data (out_stream_data)
     );
 
-    // Генератор тактов
     initial begin
         clk = 0;
         forever #(SYS_CLOCK_PERIOD/2) clk = ~clk;
     end
 
-    // Генератор случайных данных
     function automatic [DATA_WIDTH-1:0] random_data;
         integer seed;
         seed = $urandom();

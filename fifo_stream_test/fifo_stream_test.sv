@@ -70,21 +70,18 @@ module fifo_pop_stream_adapter#(
 
     reg [$size(fifo_q)-1:0] adapter_data;
     reg adapter_valid;
-    reg fifo_read_req_reg;
     wire fifo_read_ready;
     wire fifo_read_valid;
 
     always_ff @(posedge clk or posedge reset) begin
         if(reset) begin
             adapter_data <= 0;
-            fifo_read_req_reg <= 1'b0;
             adapter_valid <= 1'b0;
         end else begin
             if(fifo_read_ready) 
                 adapter_valid <= fifo_read_valid;
 
-            fifo_read_req_reg <= fifo_read_req;
-            if(fifo_read_req_reg) 
+            if(out_valid & out_ready)
                 adapter_data <= fifo_q;
         end
     end
@@ -155,33 +152,74 @@ module stream_pipeline_adapter#(
             initial $error("PIPE_DELAY SHOULD BE 2 or more: %0d", PIPE_DLY);
     endgenerate
 
-    reg [PIPE_DLY-1:0] in_valid_pipe;
-    reg [PIPE_CNT_BASE-1:0] pipe_load_cnt;
-    wire pipe_is_full;
+    wire in_fire;
+    assign in_fire = in_ready & in_valid;
+
+    logic [PIPE_DLY-1:0] in_valid_pipe;
+    logic [PIPE_CNT_BASE-1:0] pipe_load_cnt;
     
-    reg [WDTH-1:0] buffer_data;
+    logic [WDTH-1:0] buffer_data;
 
-    wire [WDTH-1:0] shift_storage_head;
-    wire shift_storage_empty;
     logic [WDTH-1:0] shift_storage_data[PIPE_DLY];//-1
-    reg [PIPE_CNT_BASE-1:0] shift_storage_cnt;
+    logic [PIPE_CNT_BASE-1:0] shift_storage_cnt;
+    wire shift_storage_empty;
+    wire shift_storage_full;
+    wire [WDTH-1:0] shift_storage_head;
 
+    wire pipe_is_full;
+    wire pipe_is_empty;
+    wire valid_pipe_out;
+
+    wire [WDTH-1:0] pipe_data_mux;
+
+    wire out_fire;
+
+    assign shift_storage_empty = (shift_storage_cnt == 0);
+    assign shift_storage_full =  (shift_storage_cnt == (PIPE_DLY-1));
+    assign shift_storage_head = shift_storage_data[shift_storage_cnt];
 
     assign pipe_is_full = (pipe_load_cnt == (PIPE_DLY-1));
+    assign pipe_is_empty = (pipe_load_cnt == 0);
+    assign valid_pipe_out = in_valid_pipe[$size(in_valid_pipe)-1];
+
+    assign pipe_data_mux = shift_storage_empty ? in_data : shift_storage_head;
+
+    assign out_fire = out_ready & out_valid;
 
     always_ff @(posedge clk or posedge reset) begin
         if(reset) begin
             in_valid_pipe <= 0;
             pipe_load_cnt <= 0;
             buffer_data <= 0;
+            shift_storage_cnt <= 0;
+            for (int i = 0; i<PIPE_DLY; i=i+1) begin
+                shift_storage_data[i] <= 0;
+            end
         end else begin
-
+            in_valid_pipe <= {in_valid_pipe[$size(in_valid_pipe)-2:0], in_fire};
+            if(in_fire & !valid_pipe_out & !pipe_is_full) 
+                pipe_load_cnt <= pipe_load_cnt + 1;
+            else if(!in_fire & valid_pipe_out & !pipe_is_empty) 
+                pipe_load_cnt <= pipe_load_cnt - 1;
+            if(out_fire)
+                buffer_data <= pipe_data_mux;
+            if(!shift_storage_full & valid_pipe_out & !out_ready)
+                shift_storage_cnt <= shift_storage_cnt + 1;
+            else if(!shift_storage_empty & out_ready & !valid_pipe_out)
+                shift_storage_cnt <= shift_storage_cnt - 1;
+            if((!shift_storage_full & valid_pipe_out & !out_ready) || 
+               (!shift_storage_empty & valid_pipe_out & out_ready) ) begin
+                shift_storage_data[0] <= in_data;
+                for (int i = 1; i<PIPE_DLY; i=i+1) begin
+                    shift_storage_data[i] <= shift_storage_data[i-1];
+                end
+            end
         end
     end
 
     assign in_ready = out_ready || !pipe_is_full;
-    assign out_data = out_ready ? (shift_storage_empty ? in_data : shift_storage_head) : buffer_data;
-    assign out_valid = in_valid_pipe[PIPE_DLY-1] | ;
+    assign out_data = out_ready ? pipe_data_mux : buffer_data;
+    assign out_valid = in_valid_pipe[PIPE_DLY-1] || !shift_storage_empty;
 
 endmodule
 
