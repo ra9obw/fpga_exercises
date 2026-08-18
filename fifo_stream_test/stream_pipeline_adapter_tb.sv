@@ -126,16 +126,22 @@ module stream_pipeline_adapter_tb();
 
     task automatic push_data(
         input int push_cycles = PIPE_DLY,
+        input int max_cycles = 0,
         input int start_value = 1234,
         input int flow_control = 0,
         input int random_gap = 0
     );
-        
+
         int data_value = start_value;
+        int cycle_count = 0;
+
+        if(max_cycles == 0)
+            max_cycles = 3*push_cycles;
 
         sent_count = 0;
-        while (sent_count < push_cycles) begin
+        while ((sent_count < push_cycles) && (cycle_count < max_cycles)) begin
             @(posedge clk);
+            cycle_count++;
             if(flow_control)
                 #10
                 if(!in_ready) begin
@@ -163,14 +169,21 @@ module stream_pipeline_adapter_tb();
 
     task automatic drive_out_ready(
         input int push_cycles = PIPE_DLY,
+        input int max_cycles = 0,
         input int before_delay = 0,
         input int random_gap = 0
     );
 
+        int cycle_count = 0;
+
+        if(max_cycles == 0)
+            max_cycles = 3*push_cycles;
+
         out_valid_cnt <= 0;
         repeat (before_delay) @(posedge clk);
-        while (out_valid_cnt < push_cycles) begin
+        while ((out_valid_cnt < push_cycles) && (cycle_count < max_cycles)) begin
             @(posedge clk);
+            cycle_count++;
             out_ready <= 1;
             #20
             if(out_valid)
@@ -215,13 +228,13 @@ module stream_pipeline_adapter_tb();
         #10
         assert (in_ready) else $display("in should be ready %t", $time);
 
-        push_data(PIPE_DLY);
+        push_data(PIPE_DLY, 100);
 
         #10
         assert (!in_ready) else $display("in should be not ready %t", $time);
         assert (out_valid) else $display("out should be valid %t", $time);
         
-        drive_out_ready(PIPE_DLY);
+        drive_out_ready(PIPE_DLY, 100);
         #10
         assert (!out_valid) else $display("out should not be valid %t", $time);
         
@@ -262,7 +275,7 @@ module stream_pipeline_adapter_tb();
         #10
         assert (in_ready) else $display("in should be ready %t", $time);
 
-        push_data(send_size, 1000, 1, 1);
+        push_data(send_size, 3*send_size, 1000, 1, 1);
         repeat (10) @(posedge clk);
         check_results();
         reset_counters();
@@ -275,8 +288,8 @@ module stream_pipeline_adapter_tb();
         assert (in_ready) else $display("in should be ready %t", $time);
 
         fork
-            push_data(send_size, 1000, 1, 1);
-            drive_out_ready(send_size, PIPE_DLY, 1);
+            push_data(send_size, 3*send_size, 1000, 1, 1);
+            drive_out_ready(send_size, 3*send_size, PIPE_DLY, 1);
         join
         
         repeat (10) @(posedge clk);
@@ -292,8 +305,8 @@ module stream_pipeline_adapter_tb();
         #10
         assert (in_ready) else $display("in should be ready %t", $time);
         fork
-            push_data(send_size, 1000, 1, 0);
-            drive_out_ready(send_size, 2, 1);
+            push_data(send_size, 3*send_size, 1000, 1, 0);
+            drive_out_ready(send_size, 3*send_size, 2, 1);
         join
         repeat (10) @(posedge clk);
         check_results();

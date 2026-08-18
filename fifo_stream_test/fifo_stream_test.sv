@@ -148,8 +148,8 @@ module stream_pipeline_adapter#(
     localparam PIPE_CNT_BASE = $clog2(PIPE_DLY+1);
 
     generate
-        if(PIPE_DLY < 2) 
-            initial $error("PIPE_DELAY SHOULD BE 2 or more: %0d", PIPE_DLY);
+        if(PIPE_DLY < 1) 
+            initial $error("PIPE_DELAY SHOULD BE 1 or more: %0d", PIPE_DLY);
     endgenerate
 
     wire in_fire;
@@ -158,7 +158,7 @@ module stream_pipeline_adapter#(
     logic [PIPE_DLY-1:0] in_valid_pipe;
     logic [PIPE_CNT_BASE-1:0] pipe_load_cnt;
 
-    logic [WDTH-1:0] shift_storage_data[PIPE_DLY];//-1
+    logic [WDTH-1:0] shift_storage_data[PIPE_DLY];
     logic [PIPE_CNT_BASE-1:0] shift_storage_cnt;
     wire shift_storage_empty;
     wire shift_storage_full;
@@ -191,7 +191,7 @@ module stream_pipeline_adapter#(
                 shift_storage_data[i] <= 0;
             end
         end else begin
-            //pipeline load track //credit counter
+            //pipeline load track //credit counter?
             in_valid_pipe <= {in_valid_pipe[$size(in_valid_pipe)-2:0], in_fire};
             if(in_fire & !out_fire & !pipe_is_full) 
                 pipe_load_cnt <= pipe_load_cnt + 1;
