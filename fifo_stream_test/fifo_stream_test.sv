@@ -140,12 +140,12 @@ module stream_pipeline_adapter#(
     input		        in_valid,
 	output 		        in_ready,
 	input [WDTH-1:0]    in_data,
-    output		        out_valid,
+    output  	        out_valid,
 	input 		        out_ready,
 	output [WDTH-1:0]   out_data
 );
 
-    localparam PIPE_CNT_BASE = $clog2(PIPE_DLY);
+    localparam PIPE_CNT_BASE = $clog2(PIPE_DLY+1);
 
     generate
         if(PIPE_DLY < 2) 
@@ -153,12 +153,10 @@ module stream_pipeline_adapter#(
     endgenerate
 
     wire in_fire;
-    assign in_fire = in_ready & in_valid;
+    wire out_fire;
 
     logic [PIPE_DLY-1:0] in_valid_pipe;
     logic [PIPE_CNT_BASE-1:0] pipe_load_cnt;
-    
-    logic [WDTH-1:0] buffer_data;
 
     logic [WDTH-1:0] shift_storage_data[PIPE_DLY];//-1
     logic [PIPE_CNT_BASE-1:0] shift_storage_cnt;
@@ -172,17 +170,15 @@ module stream_pipeline_adapter#(
 
     wire [WDTH-1:0] pipe_data_mux;
 
-    wire out_fire;
+    assign in_fire = in_ready & in_valid;
 
-    assign shift_storage_empty = (shift_storage_cnt == 0);
-    assign shift_storage_full =  (shift_storage_cnt == (PIPE_DLY-1));
-    assign shift_storage_head = shift_storage_data[shift_storage_cnt];
-
-    assign pipe_is_full = (pipe_load_cnt == (PIPE_DLY-1));
+    assign pipe_is_full = (pipe_load_cnt == PIPE_DLY);
     assign pipe_is_empty = (pipe_load_cnt == 0);
     assign valid_pipe_out = in_valid_pipe[$size(in_valid_pipe)-1];
 
-    assign pipe_data_mux = shift_storage_empty ? in_data : shift_storage_head;
+    assign shift_storage_empty = (shift_storage_cnt == 0);
+    assign shift_storage_full =  (shift_storage_cnt == (PIPE_DLY));
+    assign shift_storage_head = shift_storage_empty ? 0 : shift_storage_data[shift_storage_cnt-1];
 
     assign out_fire = out_ready & out_valid;
 
@@ -190,25 +186,23 @@ module stream_pipeline_adapter#(
         if(reset) begin
             in_valid_pipe <= 0;
             pipe_load_cnt <= 0;
-            buffer_data <= 0;
             shift_storage_cnt <= 0;
             for (int i = 0; i<PIPE_DLY; i=i+1) begin
                 shift_storage_data[i] <= 0;
             end
         end else begin
+            //pipeline load track //credit counter
             in_valid_pipe <= {in_valid_pipe[$size(in_valid_pipe)-2:0], in_fire};
-            if(in_fire & !valid_pipe_out & !pipe_is_full) 
+            if(in_fire & !out_fire & !pipe_is_full) 
                 pipe_load_cnt <= pipe_load_cnt + 1;
-            else if(!in_fire & valid_pipe_out & !pipe_is_empty) 
+            else if(!in_fire & out_fire & !pipe_is_empty) 
                 pipe_load_cnt <= pipe_load_cnt - 1;
-            if(out_fire)
-                buffer_data <= pipe_data_mux;
+
             if(!shift_storage_full & valid_pipe_out & !out_ready)
                 shift_storage_cnt <= shift_storage_cnt + 1;
             else if(!shift_storage_empty & out_ready & !valid_pipe_out)
                 shift_storage_cnt <= shift_storage_cnt - 1;
-            if((!shift_storage_full & valid_pipe_out & !out_ready) || 
-               (!shift_storage_empty & valid_pipe_out & out_ready) ) begin
+            if(valid_pipe_out) begin
                 shift_storage_data[0] <= in_data;
                 for (int i = 1; i<PIPE_DLY; i=i+1) begin
                     shift_storage_data[i] <= shift_storage_data[i-1];
@@ -218,8 +212,8 @@ module stream_pipeline_adapter#(
     end
 
     assign in_ready = out_ready || !pipe_is_full;
-    assign out_data = out_ready ? pipe_data_mux : buffer_data;
-    assign out_valid = in_valid_pipe[PIPE_DLY-1] || !shift_storage_empty;
+    assign out_data = (out_ready & shift_storage_empty) ? in_data : shift_storage_head;
+    assign out_valid = (out_ready & valid_pipe_out) || !shift_storage_empty;
 
 endmodule
 

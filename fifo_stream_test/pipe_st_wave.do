@@ -15,13 +15,16 @@ add wave -noupdate /stream_pipeline_adapter_tb/errors
 add wave -noupdate /stream_pipeline_adapter_tb/detailed_log
 add wave -noupdate /stream_pipeline_adapter_tb/i
 add wave -noupdate /stream_pipeline_adapter_tb/seed
-add wave -noupdate /stream_pipeline_adapter_tb/start_value
-add wave -noupdate /stream_pipeline_adapter_tb/data_value
-add wave -noupdate -radix unsigned /stream_pipeline_adapter_tb/uut/pipe_load_cnt
+add wave -noupdate -format Analog-Step -height 84 -max 10.0 -radix unsigned -childformat {{{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[3]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[2]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[1]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[0]} -radix unsigned}} -subitemconfig {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[3]} {-height 13 -radix unsigned} {/stream_pipeline_adapter_tb/uut/pipe_load_cnt[2]} {-height 13 -radix unsigned} {/stream_pipeline_adapter_tb/uut/pipe_load_cnt[1]} {-height 13 -radix unsigned} {/stream_pipeline_adapter_tb/uut/pipe_load_cnt[0]} {-height 13 -radix unsigned}} /stream_pipeline_adapter_tb/uut/pipe_load_cnt
+add wave -noupdate -format Analog-Step -height 84 -max 10.0 -radix unsigned -childformat {{{/stream_pipeline_adapter_tb/uut/shift_storage_cnt[3]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/shift_storage_cnt[2]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/shift_storage_cnt[1]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/shift_storage_cnt[0]} -radix unsigned}} -subitemconfig {{/stream_pipeline_adapter_tb/uut/shift_storage_cnt[3]} {-height 13 -radix unsigned} {/stream_pipeline_adapter_tb/uut/shift_storage_cnt[2]} {-height 13 -radix unsigned} {/stream_pipeline_adapter_tb/uut/shift_storage_cnt[1]} {-height 13 -radix unsigned} {/stream_pipeline_adapter_tb/uut/shift_storage_cnt[0]} {-height 13 -radix unsigned}} /stream_pipeline_adapter_tb/uut/shift_storage_cnt
+add wave -noupdate -radix hexadecimal -childformat {{{/stream_pipeline_adapter_tb/uut/shift_storage_data[0]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/shift_storage_data[1]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/shift_storage_data[2]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/shift_storage_data[3]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/shift_storage_data[4]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/shift_storage_data[5]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/shift_storage_data[6]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/shift_storage_data[7]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/shift_storage_data[8]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/shift_storage_data[9]} -radix hexadecimal}} -expand -subitemconfig {{/stream_pipeline_adapter_tb/uut/shift_storage_data[0]} {-radix hexadecimal} {/stream_pipeline_adapter_tb/uut/shift_storage_data[1]} {-radix hexadecimal} {/stream_pipeline_adapter_tb/uut/shift_storage_data[2]} {-radix hexadecimal} {/stream_pipeline_adapter_tb/uut/shift_storage_data[3]} {-radix hexadecimal} {/stream_pipeline_adapter_tb/uut/shift_storage_data[4]} {-radix hexadecimal} {/stream_pipeline_adapter_tb/uut/shift_storage_data[5]} {-radix hexadecimal} {/stream_pipeline_adapter_tb/uut/shift_storage_data[6]} {-radix hexadecimal} {/stream_pipeline_adapter_tb/uut/shift_storage_data[7]} {-radix hexadecimal} {/stream_pipeline_adapter_tb/uut/shift_storage_data[8]} {-radix hexadecimal} {/stream_pipeline_adapter_tb/uut/shift_storage_data[9]} {-radix hexadecimal}} /stream_pipeline_adapter_tb/uut/shift_storage_data
+add wave -noupdate /stream_pipeline_adapter_tb/uut/shift_storage_empty
+add wave -noupdate /stream_pipeline_adapter_tb/uut/in_data
+add wave -noupdate /stream_pipeline_adapter_tb/uut/shift_storage_head
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {{Cursor 1} {240998 ps} 0} {{Cursor 2} {523621 ps} 0}
-quietly wave cursor active 1
-configure wave -namecolwidth 380
+WaveRestoreCursors {{Cursor 1} {240998 ps} 0} {{Cursor 2} {505000 ps} 0}
+quietly wave cursor active 2
+configure wave -namecolwidth 431
 configure wave -valuecolwidth 119
 configure wave -justifyvalue left
 configure wave -signalnamewidth 0
@@ -35,4 +38,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ns
 update
-WaveRestoreZoom {212356 ps} {567753 ps}
+WaveRestoreZoom {1696077 ps} {2653891 ps}
