@@ -1,28 +1,6 @@
 
 `timescale 1 ps / 1 ps
 
-module pipeline_test_box
-#(
-    parameter WDTH = 32,
-    parameter PIPE_DLY = 10
-)(
-	input		clk,
-	input		reset,
-	input [WDTH-1:0]    in_data,
-	output [WDTH-1:0]   out_data
-);
-    logic [WDTH-1:0] shift_storage_data[PIPE_DLY];
-    always_ff @(posedge clk or posedge reset)
-        if(reset)
-            for (int i = 0; i<PIPE_DLY; i=i+1)
-                shift_storage_data[i] <= 0;
-        else begin
-            shift_storage_data[0] <= in_data;
-            for (int i = 1; i<PIPE_DLY; i=i+1)
-                shift_storage_data[i] <= shift_storage_data[i-1];
-        end
-    assign out_data = shift_storage_data[PIPE_DLY-1];
-endmodule
 
 module stream_pipeline_adapter_tb();
     parameter SYS_CLOCK_PERIOD = 10000;
@@ -65,7 +43,8 @@ module stream_pipeline_adapter_tb();
         .out_data   (bb_data)
     );
 
-    stream_pipeline_adapter#(
+    stream_pipeline_adapter_var2#(
+    // stream_pipeline_adapter#(
         .WDTH(WDTH),
         .PIPE_DLY(PIPE_DLY)
     ) uut (
