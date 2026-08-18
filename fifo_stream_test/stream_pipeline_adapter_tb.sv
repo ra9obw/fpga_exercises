@@ -43,8 +43,8 @@ module stream_pipeline_adapter_tb();
         .out_data   (bb_data)
     );
 
-    stream_pipeline_adapter_var2#(
-    // stream_pipeline_adapter#(
+    // stream_pipeline_adapter_var2#(
+    stream_pipeline_adapter#(
         .WDTH(WDTH),
         .PIPE_DLY(PIPE_DLY)
     ) uut (
@@ -67,19 +67,18 @@ module stream_pipeline_adapter_tb();
 
     task automatic check_results();       // Проверка что все данные получены
         repeat (20) @(posedge clk);
-        if(received_count == sent_count) begin
-            $display("\n=== SUCCESS: All %0d data items received correctly ===", received_count);
-            successfull_tests++;
-        end else begin
+        if(received_count != sent_count) begin
             $display("\n=== FAILURE: Sent %0d, Received %0d ===", sent_count, received_count);
-            failed_tests++;
         end
         
         if(errors > 0) begin
             $display("=== FAILURE: %0d errors detected ===", errors);
             failed_tests++;
+        end else begin
+            $display("\n=== SUCCESS: All %0d data items received correctly ===", received_count);
+            successfull_tests++;
         end
-        
+
         $display("Test completed at time %t", $time);
     endtask
 
@@ -312,6 +311,7 @@ module stream_pipeline_adapter_tb();
                     $error("[%t] DATA MISMATCH: Expected 0x%08h, Got 0x%08h", 
                            $time, expected, out_data);
                     errors = errors + 1;
+                    $pause;
                 end else begin
                     if(detailed_log) $display("[%t] VERIFIED[%0d]: 0x%08h OK", $time, received_count-1, out_data);
                 end
