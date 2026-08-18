@@ -369,6 +369,7 @@ mem_we = in_valid
 
 
 
+
 то есть если в буфере пусто & in_valid & out_ready;
 
 Задача: 

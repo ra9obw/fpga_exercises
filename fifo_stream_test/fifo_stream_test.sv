@@ -66,8 +66,8 @@ endgenerate
 endmodule
 
 module stream_pipeline_adapter_test#(    
-    parameter WDTH = 32,
-    parameter PIPE_DLY = 10
+    parameter WDTH = 160,
+    parameter PIPE_DLY = 200
 )(
     input		clk,
     input		reset,
