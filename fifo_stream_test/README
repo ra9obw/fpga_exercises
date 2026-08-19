@@ -367,9 +367,138 @@ mem_we = in_valid
 если разница между wr_addr - rd_addr = 1, выдаём буферную точку.
 
 
+Однако не могу победить вариант с памятью.
+Память имеет задержку выдачи данных 1 такт, а если 2 или 3?
+Идея заключается в том, чтобы обвязать память bypass регистром с задержкой выдачи данных 0 тактов.
+А в памяти организовать предвычитку +1 первой точки, чтобы на следующем такте у нас была нужная точка и плюс первая точка,
+чтобы отдавать в момента ту, которкю надо в данном такте. Если точка была отдана, адрес чтения делает inc и 
+у нас снова на следюущем такте будет либо +1 точка для выдачи прям вот щас, либо, если выдавать нельзя - то выдаём +0 точку, которая совпадёт в выдаваемой на предыдущем такте
+и так далее, пока разница wr_addr - rd_addr = 1, тогда в +1 точке не будет валидного значения. Но оно будет снова в bypass регистре, который пишется параллельно памяти, но доступен сразу
 
 
+// `define SHIFT_UP(reg) reg[$size(reg)-1:0]
+// `define LAS
+//control signals and states:
+// 1. input stream:
+//      -- in_valid
+//      -- in_ready = out_ready & !pipe_full; //а точно out_ready, а не buffer_ready? Ведь у нас там конвейерный буфер, который тоже можно загрузить? С другой стороны, мы весь конвейер грузим в буфер.
+                                              //а если тут глубокое fifo на выходе конвейера, то грузить в конвейер можно, пока не заполнится fifo и только потом снимать готовность
+        -- in_ready = pipe_storage_ready & !pipe_full; //но нам всё равно надо оставить счётчик свободного места по границе всей системы, т.к. когда pipe_storage_ready пропадёт (хранилище заполнилось), 
+                                              //конвейер уже будет загружен, так что первентивный счётчик нужен, но его предел он не обязан быть равен длине конвейера! А объёму хранилища.
+        видимо достаточно просто
+        -- in_ready = !pipe_full; //Но нет! Этого не достаточно, судя по тестам. Они валятся.
 
-то есть если в буфере пусто & in_valid & out_ready;
+        -- pipe_cnt_inc = !pipe_full & in_fire &!out_fire;
+        -- pipe_cnt_dec = !pipe_empty & !in_fire & out_fire; //логика по границе, всё, типа, просто
+// 2. pipeline flow buffer with stream input!
+//      -- 
+//      -- /*@ posedge clk*/ pipe_valid <= {`SHIFT_UP(pipe_valid), in_valid};
+//      -- pipe_storage_valid = pipe_valid[$size(pipe_valid)-1]
+//
+// это всё втыкается в хранилище у которого flow на выходе и stream на выходе и внутреннее состояние storage_empty
 
-Задача: 
+Режимы выдачи:
+1. прямая - на выход идут данные с конвейера, если выход готов и буфер пуст
+2. bypass данные, если вот прям сейчас мы начали притормаживать или если addr_delta_is_one & rd_addr_changed & буфер не пуст
+3. буфер не пуст, 
+
+addr_delta_is_one
+rd_addr_changed
+mem_data
+mem_next_data
+
+допустим pipe_storage_valid & ready => {out_data = pipe_data; out_valid = 1}
+допустим pipe_storage_valid & !ready => {out_data = pipe_data; out_valid = 1} //на первом такте (!ready & ready_dff)
+                                        {out_data = bypass_data; out_valid = 1} //второй такт
+                                        {out_data = mem_data; out_valid = 1} //третий такт (так как)
+
+Однако!
+Я только через автомат смог написать эту логику.
+
+    typedef enum logic [3:0] {
+        DIRECT = 4'b0001,
+        BYPASS = 4'b0010,
+        PREFETRCING = 4'b0100,
+        STALL = 4'b1000
+    } state_t;
+
+    state_t state, next_state;
+
+    always_comb begin
+        next_state = state;
+        case(state)
+        DIRECT: begin
+            if(!empty || in_valid & !out_ready)
+                next_state = BYPASS;
+        end
+        BYPASS: begin
+            if(out_ready)
+                if(empty)
+                    next_state = DIRECT;
+                else
+                    if(!addr_delte_is_one)
+                        next_state = PREFETRCING;
+                    else
+                        next_state = BYPASS;
+            else
+                next_state = STALL;
+        end
+        STALL: begin
+            if(out_ready)
+                if(empty)
+                    next_state = DIRECT;
+                else 
+                    if(!addr_delte_is_one)
+                        next_state = PREFETRCING;
+                    else
+                        next_state = BYPASS;
+            else
+                next_state = STALL;
+        end
+        PREFETRCING: begin
+            if(!out_ready)
+                next_state = STALL;
+            else
+                if(addr_delte_is_one)
+                    next_state = BYPASS;
+        end
+        default:
+            next_state = DIRECT;
+        endcase
+    end
+
+    always_ff @(posedge clk or posedge reset)
+        if(reset) begin
+            state <= DIRECT;
+        end else begin
+            state <= next_state;
+        end
+
+    always_comb begin
+        case(state)
+        DIRECT: begin
+            out_data = in_data;
+        end
+        BYPASS: begin
+            out_data = bypass_data;
+        end
+        STALL: begin
+            out_data = mem_rdata;
+        end
+        PREFETRCING: begin
+            out_data = next_addr_data;
+        end
+        endcase
+    end
+
+
+Теперь пойди и оптимизируй её.
+Всё:
+out_valid = (in_valid & out_ready) || !empty;
+out_data = empty ? in_data : (addr_delte_is_one ? bypass_data : (rd_cnt_changed ? next_addr_data : mem_rdata));
+
+
+Задача 4
+Можно ли снабдить обгонной логикой stream_fifo?
+Оно имеет задержку 4 такта:
+in_valid такт такт !empty такт + ещё такт в выходном stage

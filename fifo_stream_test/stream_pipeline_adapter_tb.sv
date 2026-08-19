@@ -6,6 +6,9 @@ module stream_pipeline_adapter_tb();
     parameter SYS_CLOCK_PERIOD = 10000;
     parameter WDTH = 32;
     parameter PIPE_DLY = 10;
+    parameter STORAGE_DEPTH = 10;
+    parameter USE_STREAM_FIFO = 0;
+    parameter STREAM_FIFO_REGISTERED = 1;
 
     logic		clk;
     logic		reset;
@@ -43,10 +46,12 @@ module stream_pipeline_adapter_tb();
         .out_data   (bb_data)
     );
 
-    // stream_pipeline_adapter_var2#(
     stream_pipeline_adapter#(
         .WDTH(WDTH),
-        .PIPE_DLY(PIPE_DLY)
+        .PIPE_DLY(PIPE_DLY),
+        .STORAGE_DEPTH(STORAGE_DEPTH),
+        .USE_STREAM_FIFO(USE_STREAM_FIFO),
+        .STREAM_FIFO_REGISTERED(STREAM_FIFO_REGISTERED)
     ) uut (
         .clk    (clk),
         .reset  (reset),
@@ -245,8 +250,7 @@ module stream_pipeline_adapter_tb();
         check_results();
         reset_counters();
 
-
-        send_size = 2*PIPE_DLY;
+        send_size = 5*PIPE_DLY;
         test_count++;
         $display("\n=== TEST%d push %d items with gaps, out is ready all time ===", test_count, send_size);
         out_ready <= 1;
@@ -258,7 +262,7 @@ module stream_pipeline_adapter_tb();
         check_results();
         reset_counters();
 
-        send_size = 2*PIPE_DLY;
+        send_size = 5*PIPE_DLY;
         test_count++;
         $display("\n=== TEST%d push %d items with gaps, wait PIPE_DLY cycles, set out ready with gaps ===", test_count, send_size);
         out_ready <= 0;
@@ -267,7 +271,7 @@ module stream_pipeline_adapter_tb();
 
         fork
             push_data(send_size, 3*send_size, 1000, 1, 1);
-            drive_out_ready(send_size, 3*send_size, PIPE_DLY, 1);
+            drive_out_ready(send_size, 3*send_size, 2.5*STORAGE_DEPTH, 1);
         join
         
         repeat (10) @(posedge clk);

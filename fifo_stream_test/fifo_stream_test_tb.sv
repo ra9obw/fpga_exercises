@@ -28,12 +28,12 @@ module fifo_stream_test_tb();
     fifo_stream_test uut(
         .clk             (clk),
         .reset           (reset),
-        .in_flow_data    (in_flow_data),
-        .in_flow_valid   (in_flow_valid),
+        .in_data    (in_flow_data),
+        .in_valid   (in_flow_valid),
         .fifo_usedw      (fifo_usedw),
-        .out_stream_valid(out_stream_valid),
-        .out_stream_ready(out_stream_ready),
-        .out_stream_data (out_stream_data)
+        .out_valid(out_stream_valid),
+        .out_ready(out_stream_ready),
+        .out_data (out_stream_data)
     );
 
     initial begin

@@ -1,17 +1,17 @@
 module fifo_stream_test#(    
     parameter WDTH = 160,
-    parameter PIPE_DLY = 200,
+    parameter DEPTH = 200,
     parameter REGISTERED = 0
 )(
 	input		clk,
 	input		reset,
-    input  [WDTH-1:0]   in_flow_data,
-    input           in_flow_valid,
-    // output [7:0]    fifo_usedw,
+    input  [WDTH-1:0]   in_data,
+    input           in_valid,
+    output [7:0]    fifo_usedw,
     output          overflow,
-    output		    out_stream_valid,
-	input 		    out_stream_ready,
-	output [WDTH-1:0]	out_stream_data
+    output		    out_valid,
+	input 		    out_ready,
+	output [WDTH-1:0]	out_data
 );
 
     wire            fifo_empty;
@@ -21,8 +21,8 @@ module fifo_stream_test#(
     rcv_fifo rcv_fifo_ch(
         .clock  (clk),
         .aclr   (reset),
-        .data   (in_flow_data),
-        .wrreq  (in_flow_valid),
+        .data   (in_data),
+        .wrreq  (in_valid),
         .rdreq  (fifo_read_req),
         .empty  (fifo_empty),
         .q      (fifo_q),
@@ -51,60 +51,18 @@ generate
             .in_valid   (tmp_stream_valid),
             .in_ready   (tmp_stream_ready),
             .in_data    (tmp_stream_data),
-            .out_valid   (out_stream_valid),
-            .out_ready   (out_stream_ready),
-            .out_data    (out_stream_data)
+            .out_valid   (out_valid),
+            .out_ready   (out_ready),
+            .out_data    (out_data)
         );        
     end else begin
-        assign out_stream_valid = tmp_stream_valid;
-        assign out_stream_data = tmp_stream_data;
-        assign tmp_stream_ready = out_stream_ready;
+        assign out_valid = tmp_stream_valid;
+        assign out_data = tmp_stream_data;
+        assign tmp_stream_ready = out_ready;
     end
 endgenerate
-
-
 endmodule
 
-module stream_pipeline_adapter_test#(    
-    parameter WDTH = 160,
-    parameter PIPE_DLY = 200
-)(
-    input		clk,
-    input		reset,
-    input		        in_valid,
-    output 		        in_ready,
-    input [WDTH-1:0]    in_data,
-    output		        out_valid,
-    input 		        out_ready,
-    output [WDTH-1:0]   out_data
-);
- 
-    wire  [WDTH-1:0]    bb_data;
-
-    pipeline_test_box #(
-        .WDTH(WDTH),
-        .PIPE_DLY(PIPE_DLY)
-    ) ppb_inst (
-        .clk    (clk),
-        .reset  (reset),
-        .in_data    (in_data),
-        .out_data   (bb_data)
-    );
-
-    stream_pipeline_adapter#(
-        .WDTH(WDTH),
-        .PIPE_DLY(PIPE_DLY)
-    ) sta_inst (
-        .clk    (clk),
-        .reset  (reset),
-        .in_valid   (in_valid),
-        .in_ready   (in_ready),
-        .in_data    (bb_data),
-        .out_valid  (out_valid),
-        .out_ready  (out_ready),
-        .out_data   (out_data)
-    );
-endmodule
 
 module fifo_pop_stream_adapter#(
     parameter WDTH = 32
@@ -181,10 +139,67 @@ module stream_pipe#(
 
 endmodule
 
+//###############################################
+//######## TASK3 PIPELINE STREAM ADAPTER ########
+//###############################################
+
+module stream_pipeline_adapter_test#(    
+    parameter WDTH = 160,
+    parameter PIPE_DLY = 200,
+    parameter STORAGE_DEPTH = 200,
+    parameter USE_STREAM_FIFO = 0
+)(
+    input		clk,
+    input		reset,
+    input		        in_valid,
+    output 		        in_ready,
+    input [WDTH-1:0]    in_data,
+    output		        out_valid,
+    input 		        out_ready,
+    output [WDTH-1:0]   out_data
+);
+
+    generate
+        if(STORAGE_DEPTH < PIPE_DLY) 
+            initial $error("STORAGE_DEPTH [%0d] SHOULD BE not less then PIPE_DLY [%0d]", STORAGE_DEPTH, PIPE_DLYs);
+    endgenerate
+
+    wire  [WDTH-1:0]    bb_data;
+
+    pipeline_test_box #(
+        .WDTH(WDTH),
+        .PIPE_DLY(PIPE_DLY)
+    ) ppb_inst (
+        .clk    (clk),
+        .reset  (reset),
+        .in_data    (in_data),
+        .out_data   (bb_data)
+    );
+
+    stream_pipeline_adapter#(
+        .WDTH(WDTH),
+        .STORAGE_DEPTH(STORAGE_DEPTH),
+        .USE_STREAM_FIFO(USE_STREAM_FIFO),
+        .STREAM_FIFO_REGISTERED(1)
+    ) sta_inst (
+        .clk    (clk),
+        .reset  (reset),
+        .in_valid   (in_valid),
+        .in_ready   (in_ready),
+        .in_data    (bb_data),
+        .out_valid  (out_valid),
+        .out_ready  (out_ready),
+        .out_data   (out_data)
+    );
+endmodule
+
 
 module stream_pipeline_adapter#(
     parameter WDTH = 32,
-    parameter PIPE_DLY = 10
+    parameter PIPE_DLY = 10,
+    parameter STORAGE_DEPTH = 10,
+    parameter USE_STREAM_FIFO = 1,
+    parameter STREAM_FIFO_REGISTERED = 1
 )(
 	input		clk,
 	input		reset,
@@ -196,11 +211,11 @@ module stream_pipeline_adapter#(
 	output [WDTH-1:0]   out_data
 );
 
-    localparam PIPE_CNT_BASE = $clog2(PIPE_DLY+1);
+    localparam PIPE_CNT_BASE = $clog2(STORAGE_DEPTH+1);
 
     generate
-        if(PIPE_DLY < 1) 
-            initial $error("PIPE_DELAY SHOULD BE 1 or more: %0d", PIPE_DLY);
+        if(STORAGE_DEPTH < 1) 
+            initial $error("PIPE_DELAY SHOULD BE 1 or more: %0d", STORAGE_DEPTH);
     endgenerate
 
     wire in_fire;
@@ -217,7 +232,7 @@ module stream_pipeline_adapter#(
 
     assign in_fire = in_ready & in_valid;
 
-    assign pipe_is_full = (pipe_load_cnt == PIPE_DLY);
+    assign pipe_is_full = (pipe_load_cnt == STORAGE_DEPTH);
     assign pipe_is_empty = (pipe_load_cnt == 0);
     assign valid_pipe_out = in_valid_pipe[$size(in_valid_pipe)-1];
     assign out_fire = out_ready & out_valid;
@@ -228,6 +243,7 @@ module stream_pipeline_adapter#(
             pipe_load_cnt <= 0;
         end else begin
             in_valid_pipe <= {in_valid_pipe[$size(in_valid_pipe)-2:0], in_fire};
+            // pipe_load_cnt <= pipe_load_cnt + (in_fire & !pipe_is_full) - (out_fire & !pipe_is_empty);
             if(in_fire & !out_fire & !pipe_is_full) 
                 pipe_load_cnt <= pipe_load_cnt + 1;
             else if(!in_fire & out_fire & !pipe_is_empty) 
@@ -235,108 +251,113 @@ module stream_pipeline_adapter#(
         end
     end
 
-    wire shift_storage_valid;
-    wire [WDTH-1:0] shift_storage_head;
-
-    // pipeline_adapter_storage 
-    // pipeline_adapter_mem_storage 
-    pipeline_adapter_mem_v2_storage
-    #(
-        .WDTH(WDTH),
-        .PIPE_DLY(PIPE_DLY)
-    ) storage_int (
-        .clk        (clk),
-        .reset      (reset),
-        .in_data    (in_data),
-        .in_valid   (valid_pipe_out),
-        .out_ready  (out_ready),
-        .out_data   (out_data),
-        .out_valid  (out_valid)
-    );
-
-
-    // fifo_stream_test
-    // #(    
-    //     .WDTH(WDTH),
-    //     .PIPE_DLY(PIPE_DLY),
-    //     .REGISTERED(1)
-    // )stream_fifo_inst(
-	//     .clk            (clk),
-	//     .reset          (reset),
-    //     .in_data   (in_data),
-    //     .in_valid  (valid_pipe_out),
-    //     .out_stream_valid   (out_valid),
-	//     .out_stream_ready   (out_ready),
-	//     .out_stream_data    (out_data)
-    // );
+generate
+    if(USE_STREAM_FIFO) begin
+        fifo_stream_test
+        #(    
+            .WDTH(WDTH),
+            .DEPTH(STORAGE_DEPTH),
+            .REGISTERED(1)
+        )stream_fifo_inst(
+            .clk         (clk),
+            .reset       (reset),
+            .in_data     (in_data),
+            .in_valid    (valid_pipe_out),
+            .out_valid   (out_valid),
+            .out_ready   (out_ready),
+            .out_data    (out_data)
+        );
+    end else begin
+        // pipeline_adapter_shiftreg_storage 
+        // pipeline_adapter_mem_storage 
+        pipeline_adapter_mem_v2_storage
+        #(
+            .WDTH(WDTH),
+            .DEPTH(STORAGE_DEPTH)
+        ) storage_int (
+            .clk        (clk),
+            .reset      (reset),
+            .in_data    (in_data),
+            .in_valid   (valid_pipe_out),
+            .out_ready  (out_ready),
+            .out_data   (out_data),
+            .out_valid  (out_valid)
+        );
+    end
+endgenerate
 
     assign in_ready = out_ready || !pipe_is_full;
-    // assign out_data = (out_ready & !shift_storage_valid) ? in_data : shift_storage_head;
-    // assign out_valid = (out_ready & valid_pipe_out) || shift_storage_valid;
-
+    
 endmodule
 
 
 module pipeline_adapter_mem_v2_storage#(
     parameter WDTH = 32,
-    parameter PIPE_DLY = 10
+    parameter DEPTH = 10
 )(
     input		        clk,
 	input		        reset,
     input  [WDTH-1:0]   in_data,
     input               in_valid,
     input               out_ready,
-    output [WDTH-1:0]   out_data,
-    output              out_valid
+    output logic [WDTH-1:0]   out_data,
+    output logic        out_valid
 );
 
     `define INCR_WRAP(reg, max) (reg == max) ? 0 : reg + 1
 
-    localparam PIPE_CNT_BASE = $clog2(PIPE_DLY);
+    localparam PIPE_CNT_BASE = $clog2(DEPTH);
 
     logic [PIPE_CNT_BASE-1:0] wr_cnt;
     logic [PIPE_CNT_BASE-1:0] rd_cnt;
-    logic [PIPE_CNT_BASE-1:0] rd_cnt_reg;
 
     logic [WDTH-1:0] bypass_data;
-    logic out_ready_reg;
+    logic rd_cnt_changed;
 
-    wire addr_delte_is_one;
-    assign addr_delte_is_one = ((wr_cnt - rd_cnt) == 1) || (rd_cnt == (PIPE_DLY-1) && (wr_cnt == 0));
-
-    wire rd_cnt_changed;
-    assign rd_cnt_changed = (rd_cnt != rd_cnt_reg);
+    logic addr_delta_is_one;
+    logic [$clog2(DEPTH):0] item_count;
 
     wire empty;
     assign empty = (wr_cnt == rd_cnt);
+
+    logic out_fire;
+    assign out_fire = (out_valid & out_ready);
 
     always_ff @(posedge clk or posedge reset) begin
         if(reset) begin
             wr_cnt <= 0;
             rd_cnt <= 0;
-            rd_cnt_reg <= 0;
             bypass_data <= 0;
-            out_ready_reg <= 0;
+            rd_cnt_changed <= 0;
+            item_count <= 0;
         end else begin
-            rd_cnt_reg <= rd_cnt;
 
-            if((out_valid || in_valid) & out_ready) 
-                rd_cnt <= `INCR_WRAP(rd_cnt, PIPE_DLY-1);
+            if(out_fire) 
+                rd_cnt <= `INCR_WRAP(rd_cnt, DEPTH-1);
             if(in_valid) begin
-                wr_cnt <= `INCR_WRAP(wr_cnt, PIPE_DLY-1);
+                wr_cnt <= `INCR_WRAP(wr_cnt, DEPTH-1);
             end
             
-            out_ready_reg <= out_ready;
-            if((in_valid & !out_valid) || (in_valid & addr_delte_is_one))
+            case({in_valid, out_fire})
+                2'b10: item_count <= item_count + 1;
+                2'b01: item_count <= item_count - 1;
+                2'b11: item_count <= item_count;
+                default: item_count <= item_count;
+            endcase
+
+            rd_cnt_changed <= out_fire;
+            if(in_valid)
                 bypass_data <= in_data;
         end
     end
+
+    assign addr_delta_is_one = (item_count == 1);
 
     wire [WDTH-1:0] mem_rdata;
     wire [WDTH-1:0] next_addr_data;
     wire [PIPE_CNT_BASE-1:0] next_rd_addr;
 
-    assign next_rd_addr = `INCR_WRAP(rd_cnt, PIPE_DLY-1);
+    assign next_rd_addr = `INCR_WRAP(rd_cnt, DEPTH-1);
 
     simple_dual_port_ram #(
         .DATA_WIDTH(WDTH),
@@ -362,18 +383,110 @@ module pipeline_adapter_mem_v2_storage#(
         .read_data(next_addr_data)
     );
 
-    assign out_valid = (in_valid & out_ready) || (!empty);
-
-    wire [WDTH-1:0] shift_storage_head;
-    assign shift_storage_head = rd_cnt_changed ? (addr_delte_is_one ? bypass_data : next_addr_data) : mem_rdata;
-    assign out_data = (out_ready & empty) ? in_data : shift_storage_head;
+    always_comb begin
+        out_valid = (in_valid & out_ready) || !empty;
+        out_data = empty ? in_data : (addr_delta_is_one ? bypass_data : (rd_cnt_changed ? next_addr_data : mem_rdata));
+    end
 
 endmodule
 
 
+module pipeline_adapter_mem_deepseek_storage#(
+    parameter WDTH = 32,
+    parameter DEPTH = 10
+)(
+    input		        clk,
+    input		        reset,
+    input  [WDTH-1:0]   in_data,
+    input               in_valid,
+    input               out_ready,
+    output logic [WDTH-1:0]   out_data,
+    output logic        out_valid
+);
+
+    `define INCR_WRAP(reg, max) (reg == max) ? 0 : reg + 1
+
+    localparam PIPE_CNT_BASE = $clog2(DEPTH);
+
+    logic [PIPE_CNT_BASE-1:0] wr_cnt;
+    logic [PIPE_CNT_BASE-1:0] rd_cnt;
+    logic [PIPE_CNT_BASE-1:0] rd_cnt_next;  // Добавляем
+
+    logic [WDTH-1:0] bypass_data;
+    logic [WDTH-1:0] mem_rdata;
+    logic rd_cnt_changed;
+
+    logic [$clog2(DEPTH):0] item_count;
+
+    wire empty;
+    assign empty = (wr_cnt == rd_cnt);
+
+    logic out_fire;
+    assign out_fire = (out_valid & out_ready);
+
+    // Комбинаторный расчет следующего адреса чтения
+    assign rd_cnt_next = `INCR_WRAP(rd_cnt, DEPTH-1);
+
+    always_ff @(posedge clk or posedge reset) begin
+        if(reset) begin
+            wr_cnt <= 0;
+            rd_cnt <= 0;
+            bypass_data <= 0;
+            rd_cnt_changed <= 0;
+            item_count <= 0;
+        end else begin
+            if(out_fire) 
+                rd_cnt <= rd_cnt_next;
+            if(in_valid) begin
+                wr_cnt <= `INCR_WRAP(wr_cnt, DEPTH-1);
+            end
+            
+            case({in_valid, out_fire})
+                2'b10: item_count <= item_count + 1;
+                2'b01: item_count <= item_count - 1;
+                2'b11: item_count <= item_count;
+                default: item_count <= item_count;
+            endcase
+
+            rd_cnt_changed <= out_fire;
+            if(in_valid)
+                bypass_data <= in_data;
+        end
+    end
+
+    // Одна память
+    simple_dual_port_ram #(
+        .DATA_WIDTH(WDTH),
+        .ADDR_WIDTH(PIPE_CNT_BASE)
+    ) dp_ram (
+        .clk(clk),
+        .we(in_valid),
+        .write_addr(wr_cnt),
+        .read_addr(out_fire ? rd_cnt_next : rd_cnt),  // Ключевое изменение!
+        .write_data(in_data),
+        .read_data(mem_rdata)
+    );
+
+    // Логика выбора данных
+    always_comb begin
+        out_valid = (in_valid & out_ready) || !empty;
+        
+        if (empty) begin
+            out_data = in_data;
+        end else if (addr_delta_is_one) begin
+            out_data = bypass_data;
+        end else begin
+            out_data = mem_rdata;
+        end
+    end
+
+endmodule
+
+
+
 module pipeline_adapter_mem_storage#(
     parameter WDTH = 32,
-    parameter PIPE_DLY = 10
+    parameter DEPTH = 10
 )(
     input		        clk,
 	input		        reset,
@@ -387,39 +500,44 @@ module pipeline_adapter_mem_storage#(
     `define INCR_WRAP(reg, max) \
         reg <= (reg == max) ? 0 : reg + 1
 
-    localparam PIPE_CNT_BASE = $clog2(PIPE_DLY);
+    localparam PIPE_CNT_BASE = $clog2(DEPTH);
 
-    logic [WDTH-1:0] data[PIPE_DLY];
+    logic [WDTH-1:0] data[DEPTH];
     logic [PIPE_CNT_BASE-1:0] wr_cnt;
     logic [PIPE_CNT_BASE-1:0] rd_cnt;
+    logic empty;
 
-    assign out_data = data[rd_cnt];
+    logic [WDTH-1:0] mem_data;
+    assign mem_data = data[rd_cnt];
 
     always_ff @(posedge clk or posedge reset) begin
         if(reset) begin
             wr_cnt <= 0;
             rd_cnt <= 0;
-            for (int i = 0; i<PIPE_DLY; i=i+1) begin
-                data[i] <= 0;
-            end
+            // for (int i = 0; i<DEPTH; i=i+1) begin
+            //     data[i] <= 0;
+            // end
         end else begin
             if((out_valid || in_valid) & out_ready) 
-                `INCR_WRAP(rd_cnt, PIPE_DLY-1);
+                `INCR_WRAP(rd_cnt, DEPTH-1);
             if(in_valid) begin
-                `INCR_WRAP(wr_cnt, PIPE_DLY-1);
+                `INCR_WRAP(wr_cnt, DEPTH-1);
                 data[wr_cnt] <= in_data;
             end
         end
     end
 
-    assign out_valid = (wr_cnt != rd_cnt);
+    assign empty = (wr_cnt == rd_cnt);
+
+    assign out_valid = (in_valid & out_ready) || (!empty);
+    assign out_data = (out_ready & empty) ? in_data : mem_data;
 
 endmodule
 
 
-module pipeline_adapter_storage#(
+module pipeline_adapter_shiftreg_storage#(
     parameter WDTH = 32,
-    parameter PIPE_DLY = 10
+    parameter DEPTH = 10
 )(
     input		        clk,
 	input		        reset,
@@ -430,9 +548,9 @@ module pipeline_adapter_storage#(
     output              out_valid
 );
 
-    localparam PIPE_CNT_BASE = $clog2(PIPE_DLY+1);
+    localparam PIPE_CNT_BASE = $clog2(DEPTH+1);
 
-    logic [WDTH-1:0] data[PIPE_DLY];
+    logic [WDTH-1:0] data[DEPTH];
     logic [PIPE_CNT_BASE-1:0] cnt;
     wire full;
     wire empty;
@@ -440,13 +558,13 @@ module pipeline_adapter_storage#(
     wire [WDTH-1:0] shift_storage_head;
 
     assign empty = (cnt == 0);
-    assign full  = (cnt == (PIPE_DLY));
+    assign full  = (cnt == (DEPTH));
     assign shift_storage_head = empty ? 0 : data[cnt-1];
 
     always_ff @(posedge clk or posedge reset) begin
         if(reset) begin
             cnt <= 0;
-            for (int i = 0; i<PIPE_DLY; i=i+1) begin
+            for (int i = 0; i<DEPTH; i=i+1) begin
                 data[i] <= 0;
             end
         end else begin
@@ -456,7 +574,7 @@ module pipeline_adapter_storage#(
                 cnt <= cnt - 1;
             if(in_valid) begin
                 data[0] <= in_data;
-                for (int i = 1; i<PIPE_DLY; i=i+1) begin
+                for (int i = 1; i<DEPTH; i=i+1) begin
                     data[i] <= data[i-1];
                 end
             end
@@ -491,105 +609,3 @@ module pipeline_test_box
         end
     assign out_data = shift_storage_data[PIPE_DLY-1];
 endmodule
-
-
-// module fifo_stream_test(
-// 	input		clk,
-// 	input		reset,
-//     input  [31:0]   in_flow_data,
-//     input           in_flow_valid,
-//     output [7:0]    fifo_usedw,
-//     output		    out_stream_valid,
-// 	input 		    out_stream_ready,
-// 	output [31:0]	out_stream_data
-// );
-
-
-//     wire            fifo_empty;
-//     wire            fifo_read_req;
-//     wire   [31:0]   fifo_q;
-    
-//     rcv_fifo rcv_fifo_ch(
-//         .clock  (clk),
-//         .aclr   (reset),
-//         .data   (in_flow_data),
-//         .wrreq  (in_flow_valid),
-//         .rdreq  (fifo_read_req),
-//         .empty  (fifo_empty),
-//         .q      (fifo_q),
-//         .usedw  (fifo_usedw)
-//     );
-
-//     typedef enum logic [2:0] {
-//         IDLE, STARTING, STREAMING, ENDING, PAUSING, WAITING, RESUMING
-//     } state_t;
-
-//     state_t current_state, next_state;
-//     reg [$size(fifo_q)-1:0] fifo_q_reg;
-//     reg fifo_read_req_reg;
-
-//     always_ff @(posedge clk or posedge reset) begin
-//         if(reset) begin
-//             current_state <= IDLE;
-//             fifo_q_reg <= 0;
-//             fifo_read_req_reg <= 1'b0;
-//         end else begin
-//             current_state <= next_state;
-//             fifo_read_req_reg <= fifo_read_req;
-//             if(fifo_read_req_reg) fifo_q_reg <= fifo_q;
-//         end
-//     end
-
-//     always_comb begin
-//         next_state = current_state;
-//         case (current_state)
-//             IDLE: begin
-//                 if(!fifo_empty) begin
-//                     next_state = STARTING;
-//                 end
-//             end
-//             STARTING: begin
-//                 if(out_stream_ready) begin
-//                     if(!fifo_empty) begin
-//                         next_state = STREAMING;
-//                     end else begin
-//                         next_state = IDLE;
-//                     end
-//                 end
-//             end
-//             STREAMING: begin
-//                 if(fifo_empty) begin
-//                     if(out_stream_ready) begin
-//                         next_state = IDLE;
-//                     end
-//                     else begin
-//                         next_state = ENDING;
-//                     end
-//                 end else begin
-//                     if(!out_stream_ready) begin
-//                         next_state = PAUSING;
-//                     end
-//                 end
-//             end
-//             ENDING: begin
-//                 if(out_stream_ready) begin
-//                     if(fifo_empty) begin
-//                         next_state = IDLE;
-//                     end else begin
-//                         next_state = STARTING;
-//                     end
-//                 end
-//             end
-//             PAUSING: begin
-//                 if(out_stream_ready) begin
-//                     next_state = STARTING;
-//                 end
-//             end
-//         endcase
-//     end
-
-// assign fifo_read_req = !fifo_empty & (out_stream_ready | (current_state == IDLE)); //!adapter_valid
-// assign out_stream_valid = current_state != IDLE; //adapter_valid
-// assign out_stream_data  = (current_state == PAUSING) ? fifo_q_reg : fifo_q; //adapter_valid & !out_stream_ready
-
-// endmodule
