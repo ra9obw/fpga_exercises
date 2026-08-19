@@ -310,9 +310,9 @@ module pipeline_adapter_mem_v2_storage#(
 
     logic [PIPE_CNT_BASE-1:0] wr_cnt;
     logic [PIPE_CNT_BASE-1:0] rd_cnt;
+    logic [PIPE_CNT_BASE-1:0] rd_next_cnt;
 
     logic [WDTH-1:0] bypass_data;
-    logic rd_cnt_changed;
 
     logic addr_delta_is_one;
     logic [$clog2(DEPTH):0] item_count;
@@ -327,13 +327,15 @@ module pipeline_adapter_mem_v2_storage#(
         if(reset) begin
             wr_cnt <= 0;
             rd_cnt <= 0;
+            rd_next_cnt <= 1;
             bypass_data <= 0;
-            rd_cnt_changed <= 0;
             item_count <= 0;
         end else begin
 
-            if(out_fire) 
+            if(out_fire) begin
                 rd_cnt <= `INCR_WRAP(rd_cnt, DEPTH-1);
+                rd_next_cnt <= `INCR_WRAP(rd_next_cnt, DEPTH-1);
+            end
             if(in_valid) begin
                 wr_cnt <= `INCR_WRAP(wr_cnt, DEPTH-1);
             end
@@ -345,7 +347,6 @@ module pipeline_adapter_mem_v2_storage#(
                 default: item_count <= item_count;
             endcase
 
-            rd_cnt_changed <= out_fire;
             if(in_valid)
                 bypass_data <= in_data;
         end
@@ -355,9 +356,6 @@ module pipeline_adapter_mem_v2_storage#(
 
     wire [WDTH-1:0] mem_rdata;
     wire [WDTH-1:0] next_addr_data;
-    wire [PIPE_CNT_BASE-1:0] next_rd_addr;
-
-    assign next_rd_addr = `INCR_WRAP(rd_cnt, DEPTH-1);
 
     simple_dual_port_ram #(
         .DATA_WIDTH(WDTH),
@@ -366,26 +364,14 @@ module pipeline_adapter_mem_v2_storage#(
         .clk(clk),
         .we(in_valid),
         .write_addr(wr_cnt),
-        .read_addr(rd_cnt),
+        .read_addr(out_fire ? rd_next_cnt : rd_cnt),
         .write_data(in_data),
         .read_data(mem_rdata)
     );
 
-    simple_dual_port_ram #(
-        .DATA_WIDTH(WDTH),
-        .ADDR_WIDTH(PIPE_CNT_BASE)
-    ) dp_ram_next_addr (
-        .clk(clk),
-        .we(in_valid),
-        .write_addr(wr_cnt),
-        .read_addr(next_rd_addr),
-        .write_data(in_data),
-        .read_data(next_addr_data)
-    );
-
     always_comb begin
         out_valid = (in_valid & out_ready) || !empty;
-        out_data = empty ? in_data : (addr_delta_is_one ? bypass_data : (rd_cnt_changed ? next_addr_data : mem_rdata));
+        out_data = empty ? in_data : (addr_delta_is_one ? bypass_data : mem_rdata);
     end
 
 endmodule
@@ -466,7 +452,8 @@ module pipeline_adapter_mem_deepseek_storage#(
         .write_data(in_data),
         .read_data(mem_rdata)
     );
-
+    wire addr_delta_is_one;
+    assign addr_delta_is_one = (item_count == 1);
     // Логика выбора данных
     always_comb begin
         out_valid = (in_valid & out_ready) || !empty;
