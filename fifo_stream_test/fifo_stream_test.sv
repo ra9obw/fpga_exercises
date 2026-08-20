@@ -267,7 +267,8 @@ generate
             .out_data    (out_data)
         );
     end else begin
-        pipeline_adapter_mem_storage
+        // pipeline_adapter_mem_storage
+        pipeline_adapter_2ticks_mem_storage
         // pipeline_adapter_shiftreg_storage
         #(
             .WDTH(WDTH),
@@ -356,7 +357,6 @@ module pipeline_adapter_mem_storage#(
         end
     end
 
-
     simple_dual_port_ram #(
         .DATA_WIDTH(WDTH),
         .ADDR_WIDTH(ADDR_WDTH)
@@ -374,6 +374,221 @@ module pipeline_adapter_mem_storage#(
         out_data = empty ? in_data : (mem_valid ? mem_rdata : bypass_data );
     end
 
+endmodule
+
+
+module pipeline_adapter_2ticks_mem_storage#(
+    parameter WDTH = 32,
+    parameter DEPTH = 10
+)(
+    input		        clk,
+	input		        reset,
+    input  [WDTH-1:0]   in_data,
+    input               in_valid,
+    input               out_ready,
+    output logic [WDTH-1:0]   out_data,
+    output logic        out_valid
+);
+
+    generate
+        if(DEPTH < 2) 
+            initial $error("MEM DEPTH should be 2 or more: %0d", DEPTH);
+    endgenerate
+
+    `define INCR_WRAP(reg, max) (reg == max) ? 0 : reg + 1
+    `define SHIFT_UD(reg) reg[$size(reg)-1:0]
+
+    localparam ADDR_WDTH = $clog2(DEPTH);
+    localparam MEM_PIPE_DELAY = 2;
+
+    logic [ADDR_WDTH-1:0] wr_cnt;
+    logic [ADDR_WDTH-1:0] rd_cnt;
+
+    logic [$clog2(DEPTH):0] items;
+
+    wire empty;
+    assign empty = (items == 0);
+
+    logic out_fire;
+    assign out_fire = (out_valid & out_ready);
+
+    wire [WDTH-1:0] mem_rdata;
+
+    wire inc_items;
+    wire dec_items;
+
+    assign inc_items = in_valid & !out_fire;
+    assign dec_items = !in_valid & out_fire;
+
+    always_ff @(posedge clk or posedge reset) begin
+        if(reset) begin
+            wr_cnt <= 0;
+            rd_cnt <= 2;
+            items <= 0;
+        end else begin
+            if(out_fire & !empty) begin
+                rd_cnt <= `INCR_WRAP(rd_cnt, DEPTH-1);
+            end
+            if(in_valid & (!out_ready || !empty)) begin
+                wr_cnt <= `INCR_WRAP(wr_cnt, DEPTH-1);
+            end
+            
+            case({in_valid, out_fire})
+                2'b10: items <= items + 1;
+                2'b01: items <= items - 1;
+                2'b11: items <= items;
+                default: items <= items;
+            endcase
+            // items <= items + inc_items - dec_items;
+
+        end
+    end
+
+    simple_dual_port_ram #(
+        .DATA_WIDTH(WDTH),
+        .ADDR_WIDTH(ADDR_WDTH),
+        .OUTPUT_REGISTERED(1)
+    ) dp_ram (
+        .clk(clk),
+        .we(in_valid),
+        .write_addr(wr_cnt),
+        .read_addr(rd_cnt),
+        .write_data(in_data),
+        .read_data(mem_rdata)
+    );
+
+
+    localparam HP_WDTH =  $clog2(MEM_PIPE_DELAY);
+    logic [HP_WDTH-1:0] head_pointer;
+
+    typedef enum logic [3:0] {
+        STREAM, PAUSE, STALL, RESUME, MEMORY, MEM_BREAK, RELEASE
+    } state_t;
+
+    state_t current_state, next_state;
+
+
+    always_ff @(posedge clk or posedge reset) begin
+        if(reset) begin
+            current_state <= IDLE;
+        end else begin
+            current_state <= next_state;
+        end
+    end
+
+    always_comb begin
+        next_state = current_state;
+        case (current_state)
+            STREAM: begin
+                if(inc_items)
+                    next_state = PAUSE;
+            end
+            PAUSE: begin
+                if((head_pointer == (MEM_PIPE_DELAY-1)) & inc_items)
+                    next_state = STALL;
+                else if((head_pointer == 0) & dec_items)
+                    next_state = STREAM;
+            end
+            STALL: begin
+                if(out_fire)
+                    next_state = RESUME;
+            end
+            RESUME: begin
+                if((head_pointer == MEM_PIPE_DELAY-1) & !out_ready)
+                    next_state = STALL;
+                else if((head_pointer == 0) & out_ready)
+                    next_state = MEMORY;
+            end
+            MEMORY: begin
+                if((items == MEM_PIPE_DELAY) & dec_items)
+                    next_state = RELEASE;
+                else if(!out_ready)
+                    next_state = MEM_BREAK;
+            end
+            MEM_BREAK: begin
+                if((head_pointer == MEM_PIPE_DELAY-1) & inc_items)
+                    next_state = STALL;
+                else if((head_pointer == 0) & dec_items)
+                    nex_state = MEMORY;
+            end
+            RELEASE: begin
+                if((head_pointer == 0) & dec_items)
+                    nex_state = STREAM;
+                else if(inc_items)
+                    next_state = MEM_BREAK;
+            end
+            default: begin
+                next_state = STREAM;
+            end
+        endcase
+    end
+
+
+    logic [WDTH-1:0] haed_data[MEM_PIPE_DELAY];
+    // logic [WDTH-1:0] tail_data[MEM_PIPE_DELAY];
+    logic [MEM_PIPE_DELAY-1:0] mem_readed;
+
+
+    always_ff @(posedge clk or posedge reset) begin
+        if(reset) begin
+            head_pointer <= 0;
+            mem_readed <= 0;
+            for(int i=0; i<MEM_PIPE_DELAY; i++) begin
+                haed_data[i] <= 0;
+            end
+        end else begin
+            mem_readed <= {`SHIFT_UD(mem_readed), out_fire & (items > MEM_PIPE_DELAY)};
+            //
+            if(in_valid & (items < MEM_PIPE_DELAY) || (out_fire & (items == MEM_PIPE_DELAY))) begin
+                haed_data[0] <= in_data;
+                for(int i=1; i<MEM_PIPE_DELAY; i++) begin
+                    haed_data[i] <= haed_data[i-1];
+                end
+            end else if(out_fire || mem_readed[MEM_PIPE_DELAY-1]) begin
+                haed_data[0] <= mem_rdata;
+                for(int i=1; i<MEM_PIPE_DELAY; i++) begin
+                    haed_data[i] <= haed_data[i-1];
+                end
+            end
+            //head_pointer
+            //насколько глубоко по конвейерной задержке сдвинулись
+            case(current_state)
+                STREAM: begin
+                    head_pointer <= 0;
+                end
+                PAUSE: begin
+                    if(inc_items) head_pointer <= head_pointer + 1;
+                    else if(dec_items) head_pointer <= head_pointer - 1;
+                end
+                STALL: begin
+                    head_pointer <= MEM_PIPE_DELAY-1;
+                end
+                RESUME: begin
+                    if(inc_items) head_pointer <= head_pointer + 1;
+                    else if(dec_items) head_pointer <= head_pointer - 1;
+                end
+                MEMORY: begin
+
+                end
+                MEM_BREAK: begin
+
+                end
+                RELEASE: begin
+
+                end
+                default: begin
+
+                end            
+            endcase
+        
+
+        end
+    end
+
+    always_comb begin
+        out_valid = (in_valid & empty) || !empty;
+        out_data = empty ? in_data : (&mem_readed ? mem_rdata : haed_data[head_pointer]);
+    end
 
 endmodule
 
