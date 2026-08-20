@@ -211,13 +211,13 @@ module stream_pipeline_adapter_tb();
         #10
         assert (in_ready) else $display("in should be ready %t", $time);
 
-        push_data(PIPE_DLY, 3*PIPE_DLY);
+        push_data(PIPE_DLY, 3*PIPE_DLY, 1000);
 
         #10
         assert (!in_ready) else $display("in should be not ready %t", $time);
         assert (out_valid) else $display("out should be valid %t", $time);
         
-        drive_out_ready(PIPE_DLY, 3*PIPE_DLY);
+        drive_out_ready(PIPE_DLY, 3*PIPE_DLY, 2000);
         #10
         assert (!out_valid) else $display("out should not be valid %t", $time);
         
@@ -232,7 +232,7 @@ module stream_pipeline_adapter_tb();
         assert (in_ready) else $display("in should be ready %t", $time);
 
         fork
-            push_data(PIPE_DLY, 3*PIPE_DLY);
+            push_data(PIPE_DLY, 3*PIPE_DLY, 3000);
             drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY);
         join
         repeat (10) @(posedge clk);
@@ -247,7 +247,7 @@ module stream_pipeline_adapter_tb();
         assert (in_ready) else $display("in should be ready %t", $time);
 
         fork
-            push_data(PIPE_DLY, 3*PIPE_DLY);
+            push_data(PIPE_DLY, 3*PIPE_DLY, 4000);
             drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY+1);
         join
         repeat (10) @(posedge clk);
@@ -263,7 +263,7 @@ module stream_pipeline_adapter_tb();
         assert (in_ready) else $display("in should be ready %t", $time);
 
         fork
-            push_data(PIPE_DLY, 3*PIPE_DLY);
+            push_data(PIPE_DLY, 3*PIPE_DLY, 5000);
             drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY+2);
         join
         repeat (10) @(posedge clk);
@@ -280,7 +280,7 @@ module stream_pipeline_adapter_tb();
         assert (in_ready) else $display("in should be ready %t", $time);
 
         fork
-            push_data(PIPE_DLY, 3*PIPE_DLY);
+            push_data(PIPE_DLY, 3*PIPE_DLY, 6000);
             drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY+3);
         join
         repeat (10) @(posedge clk);
@@ -297,7 +297,7 @@ module stream_pipeline_adapter_tb();
         assert (in_ready) else $display("in should be ready %t", $time);
 
         fork
-            push_data(PIPE_DLY, 3*PIPE_DLY);
+            push_data(PIPE_DLY, 3*PIPE_DLY, 7000);
             drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY+4);
         join
         repeat (10) @(posedge clk);
@@ -311,7 +311,7 @@ module stream_pipeline_adapter_tb();
         #10
         assert (in_ready) else $display("in should be ready %t", $time);
         
-        push_data(PIPE_DLY, 3*PIPE_DLY);
+        push_data(PIPE_DLY, 3*PIPE_DLY, 8000);
         drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, PIPE_DLY);
         drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, 1);
         
@@ -326,7 +326,7 @@ module stream_pipeline_adapter_tb();
         #10
         assert (in_ready) else $display("in should be ready %t", $time);
         
-        push_data(PIPE_DLY, 3*PIPE_DLY);
+        push_data(PIPE_DLY, 3*PIPE_DLY, 9000);
         drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, PIPE_DLY);
         drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, 2);
         
@@ -342,7 +342,7 @@ module stream_pipeline_adapter_tb();
         #10
         assert (in_ready) else $display("in should be ready %t", $time);
         
-        push_data(PIPE_DLY, 3*PIPE_DLY);
+        push_data(PIPE_DLY, 3*PIPE_DLY, 10000);
         drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, PIPE_DLY);
         drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, 3);
         
@@ -358,7 +358,7 @@ module stream_pipeline_adapter_tb();
         #10
         assert (in_ready) else $display("in should be ready %t", $time);
         
-        push_data(PIPE_DLY, 3*PIPE_DLY);
+        push_data(PIPE_DLY, 3*PIPE_DLY, 11000);
         drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, PIPE_DLY);
         drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, 4);
         

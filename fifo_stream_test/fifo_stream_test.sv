@@ -444,19 +444,26 @@ module pipeline_adapter_2ticks_mem_storage#(
         end
     end
 
-    simple_dual_port_ram #(
-        .DATA_WIDTH(WDTH),
-        .ADDR_WIDTH(ADDR_WDTH),
-        .OUTPUT_REGISTERED(1)
-    ) dp_ram (
-        .clk(clk),
-        .we(in_valid),
-        .write_addr(wr_cnt),
-        .read_addr(rd_cnt),
-        .write_data(in_data),
-        .read_data(mem_rdata)
+    // simple_dual_port_ram #(
+    //     .DATA_WIDTH(WDTH),
+    //     .ADDR_WIDTH(ADDR_WDTH),
+    //     .OUTPUT_REGISTERED(1)
+    // ) dp_ram (
+    //     .clk(clk),
+    //     .we(in_valid),
+    //     .write_addr(wr_cnt),
+    //     .read_addr(rd_cnt),
+    //     .write_data(in_data),
+    //     .read_data(mem_rdata)
+    // );
+    true_dp_ram dp_ram (
+        .clock(clk),
+        .data(in_data),
+        .rdaddress(rd_cnt),
+        .wraddress(wr_cnt),
+        .wren(in_valid),
+        .q(mem_rdata)
     );
-
 
     localparam HP_WDTH =  $clog2(MEM_PIPE_DELAY);
     logic [HP_WDTH-1:0] head_pointer;
@@ -470,7 +477,7 @@ module pipeline_adapter_2ticks_mem_storage#(
 
     always_ff @(posedge clk or posedge reset) begin
         if(reset) begin
-            current_state <= IDLE;
+            current_state <= STREAM;
         end else begin
             current_state <= next_state;
         end
@@ -500,21 +507,21 @@ module pipeline_adapter_2ticks_mem_storage#(
                     next_state = MEMORY;
             end
             MEMORY: begin
-                if((items == MEM_PIPE_DELAY) & dec_items)
+                if((items == (MEM_PIPE_DELAY+1)) & dec_items)
                     next_state = RELEASE;
                 else if(!out_ready)
                     next_state = MEM_BREAK;
             end
             MEM_BREAK: begin
-                if((head_pointer == MEM_PIPE_DELAY-1) & inc_items)
+                if((head_pointer == MEM_PIPE_DELAY-1) & dec_items)
                     next_state = STALL;
-                else if((head_pointer == 0) & dec_items)
-                    nex_state = MEMORY;
+                else if((head_pointer == 0) & out_ready)
+                    next_state = MEMORY;
             end
             RELEASE: begin
-                if((head_pointer == 0) & dec_items)
-                    nex_state = STREAM;
-                else if(inc_items)
+                if((items == 1) & out_ready)
+                    next_state = STREAM;
+                else if(!out_ready)
                     next_state = MEM_BREAK;
             end
             default: begin
@@ -524,30 +531,40 @@ module pipeline_adapter_2ticks_mem_storage#(
     end
 
 
-    logic [WDTH-1:0] haed_data[MEM_PIPE_DELAY];
-    // logic [WDTH-1:0] tail_data[MEM_PIPE_DELAY];
+    logic [WDTH-1:0] head_data[MEM_PIPE_DELAY];
+    logic [WDTH-1:0] tail_data[MEM_PIPE_DELAY];
     logic [MEM_PIPE_DELAY-1:0] mem_readed;
 
+    wire shift_mem_data;
+    assign shift_mem_data = (current_state != STREAM) & (current_state != PAUSE);
 
     always_ff @(posedge clk or posedge reset) begin
         if(reset) begin
             head_pointer <= 0;
             mem_readed <= 0;
             for(int i=0; i<MEM_PIPE_DELAY; i++) begin
-                haed_data[i] <= 0;
+                head_data[i] <= 0;
+                tail_data[i] <= 0;
             end
         end else begin
             mem_readed <= {`SHIFT_UD(mem_readed), out_fire & (items > MEM_PIPE_DELAY)};
             //
-            if(in_valid & (items < MEM_PIPE_DELAY) || (out_fire & (items == MEM_PIPE_DELAY))) begin
-                haed_data[0] <= in_data;
+            if(in_valid & (current_state == STREAM) || ((next_state == PAUSE)  )) begin
+                head_data[0] <= in_data;
                 for(int i=1; i<MEM_PIPE_DELAY; i++) begin
-                    haed_data[i] <= haed_data[i-1];
+                    head_data[i] <= head_data[i-1];
                 end
-            end else if(out_fire || mem_readed[MEM_PIPE_DELAY-1]) begin
-                haed_data[0] <= mem_rdata;
+            end else if(out_fire & shift_mem_data) begin
+                head_data[0] <= mem_rdata;
                 for(int i=1; i<MEM_PIPE_DELAY; i++) begin
-                    haed_data[i] <= haed_data[i-1];
+                    head_data[i] <= head_data[i-1];
+                end
+            end
+            //
+            if(in_valid) begin
+                tail_data[0] <= in_data;
+                for(int i=1; i<MEM_PIPE_DELAY; i++) begin
+                    tail_data[i] <= tail_data[i-1];
                 end
             end
             //head_pointer
@@ -557,37 +574,62 @@ module pipeline_adapter_2ticks_mem_storage#(
                     head_pointer <= 0;
                 end
                 PAUSE: begin
-                    if(inc_items) head_pointer <= head_pointer + 1;
-                    else if(dec_items) head_pointer <= head_pointer - 1;
+                    if(inc_items & (head_pointer < (MEM_PIPE_DELAY-1))) head_pointer <= head_pointer + 1;
+                    else if(dec_items & (head_pointer > 0)) head_pointer <= head_pointer - 1;
                 end
                 STALL: begin
                     head_pointer <= MEM_PIPE_DELAY-1;
                 end
                 RESUME: begin
-                    if(inc_items) head_pointer <= head_pointer + 1;
-                    else if(dec_items) head_pointer <= head_pointer - 1;
+                    if(!out_ready) head_pointer <= head_pointer + 1;
+                    else if(out_ready) head_pointer <= head_pointer - 1;
                 end
                 MEMORY: begin
-
+                    head_pointer <= 0;
                 end
                 MEM_BREAK: begin
-
+                    if(!out_ready) head_pointer <= head_pointer + 1;
+                    else head_pointer <= head_pointer - 1;
                 end
                 RELEASE: begin
-
+                    if(dec_items) head_pointer <= head_pointer + 1;
                 end
                 default: begin
-
+                    
                 end            
             endcase
-        
-
+    
         end
     end
 
     always_comb begin
         out_valid = (in_valid & empty) || !empty;
-        out_data = empty ? in_data : (&mem_readed ? mem_rdata : haed_data[head_pointer]);
+        // out_data = empty ? in_data : (&mem_readed ? mem_rdata : head_data[head_pointer]);
+        case(current_state)
+            STREAM: begin
+                out_data = in_data;
+            end
+            PAUSE: begin
+                out_data = head_data[head_pointer];
+            end
+            STALL: begin
+                out_data = head_data[head_pointer];
+            end
+            RESUME: begin
+                out_data = head_data[head_pointer];
+            end
+            MEMORY: begin
+                out_data = mem_rdata;
+            end
+            MEM_BREAK: begin
+                out_data = head_data[head_pointer];
+            end
+            RELEASE: begin
+                out_data = tail_data[MEM_PIPE_DELAY-1-head_pointer];
+            end
+            default: begin        
+            end
+        endcase
     end
 
 endmodule
