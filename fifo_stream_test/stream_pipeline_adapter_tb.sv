@@ -211,19 +211,162 @@ module stream_pipeline_adapter_tb();
         #10
         assert (in_ready) else $display("in should be ready %t", $time);
 
-        push_data(PIPE_DLY, 100);
+        push_data(PIPE_DLY, 3*PIPE_DLY);
 
         #10
         assert (!in_ready) else $display("in should be not ready %t", $time);
         assert (out_valid) else $display("out should be valid %t", $time);
         
-        drive_out_ready(PIPE_DLY, 100);
+        drive_out_ready(PIPE_DLY, 3*PIPE_DLY);
         #10
         assert (!out_valid) else $display("out should not be valid %t", $time);
         
         check_results();
         reset_counters();
         
+
+        test_count++;
+        repeat (10) @(posedge clk);
+        $display("\n=== TEST%d push PIPE_DLY items, no wait, set out ready for PIPE_DLY cycles ===", test_count);
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+
+        fork
+            push_data(PIPE_DLY, 3*PIPE_DLY);
+            drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY);
+        join
+        repeat (10) @(posedge clk);
+        check_results();
+        reset_counters();
+
+
+        test_count++;
+        repeat (10) @(posedge clk);
+        $display("\n=== TEST%d push PIPE_DLY items, wait 1 cycle, set out ready for PIPE_DLY cycles ===", test_count);
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+
+        fork
+            push_data(PIPE_DLY, 3*PIPE_DLY);
+            drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY+1);
+        join
+        repeat (10) @(posedge clk);
+        check_results();
+        reset_counters();
+
+
+
+        test_count++;
+        repeat (10) @(posedge clk);
+        $display("\n=== TEST%d push PIPE_DLY items, wait 2 cycles, set out ready for PIPE_DLY cycles ===", test_count);
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+
+        fork
+            push_data(PIPE_DLY, 3*PIPE_DLY);
+            drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY+2);
+        join
+        repeat (10) @(posedge clk);
+        check_results();
+        reset_counters();
+
+
+
+
+        test_count++;
+        repeat (10) @(posedge clk);
+        $display("\n=== TEST%d push PIPE_DLY items, wait 3 cycles, set out ready for PIPE_DLY cycles ===", test_count);
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+
+        fork
+            push_data(PIPE_DLY, 3*PIPE_DLY);
+            drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY+3);
+        join
+        repeat (10) @(posedge clk);
+        check_results();
+        reset_counters();
+
+
+
+
+        test_count++;
+        repeat (10) @(posedge clk);
+        $display("\n=== TEST%d push PIPE_DLY items, wait 4 cycles, set out ready for PIPE_DLY cycles ===", test_count);
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+
+        fork
+            push_data(PIPE_DLY, 3*PIPE_DLY);
+            drive_out_ready(PIPE_DLY, 3*PIPE_DLY, PIPE_DLY+4);
+        join
+        repeat (10) @(posedge clk);
+        check_results();
+        reset_counters();
+
+
+        test_count++;
+        repeat (10) @(posedge clk);
+        $display("\n=== TEST%d push PIPE_DLY items, wait 1 cycles, set out ready for PIPE_DLY and insert one not ready in middle ===", test_count);
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+        
+        push_data(PIPE_DLY, 3*PIPE_DLY);
+        drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, PIPE_DLY);
+        drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, 1);
+        
+        repeat (20) @(posedge clk);
+        check_results();
+        reset_counters();
+
+    
+        test_count++;
+        repeat (10) @(posedge clk);
+        $display("\n=== TEST%d push PIPE_DLY items, wait 1 cycles, set out ready for PIPE_DLY and insert 2 not ready in middle ===", test_count);
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+        
+        push_data(PIPE_DLY, 3*PIPE_DLY);
+        drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, PIPE_DLY);
+        drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, 2);
+        
+        repeat (20) @(posedge clk);
+        check_results();
+        reset_counters();
+
+
+
+        test_count++;
+        repeat (10) @(posedge clk);
+        $display("\n=== TEST%d push PIPE_DLY items, wait 1 cycles, set out ready for PIPE_DLY and insert 3 not ready in middle ===", test_count);
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+        
+        push_data(PIPE_DLY, 3*PIPE_DLY);
+        drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, PIPE_DLY);
+        drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, 3);
+        
+        repeat (20) @(posedge clk);
+        check_results();
+        reset_counters();
+
+
+
+        test_count++;
+        repeat (10) @(posedge clk);
+        $display("\n=== TEST%d push PIPE_DLY items, wait 1 cycles, set out ready for PIPE_DLY and insert 4 not ready in middle ===", test_count);
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+        
+        push_data(PIPE_DLY, 3*PIPE_DLY);
+        drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, PIPE_DLY);
+        drive_out_ready(PIPE_DLY/2, 3*PIPE_DLY, 4);
+        
+        repeat (20) @(posedge clk);
+        check_results();
+        reset_counters();
+
+
 
         repeat (10) @(posedge clk);
         send_size = 2*PIPE_DLY;

@@ -29,7 +29,8 @@
 
 module simple_dual_port_ram #(
     parameter DATA_WIDTH = 8,
-    parameter ADDR_WIDTH = 6
+    parameter ADDR_WIDTH = 6,
+    parameter OUTPUT_REGISTERED = 0 //0 - 1 tick read latency; 1 - 2 tick read latency
 ) (
     input wire clk,
     input wire we,                              // Сигнал разрешения записи
@@ -41,17 +42,44 @@ module simple_dual_port_ram #(
 
     // Объявление массива памяти
     reg [DATA_WIDTH-1:0] ram [0:(1<<ADDR_WIDTH)-1];
+    
+    //Далее сделаем условную генерацию которая определит - захватывать в регистры входные адреса и данные по клоке
+    //давай дполнительный такт к задержке, но потенциально более высокое быстродействие
+    //объявление внутренних регистров для адресов и записываемых данных
+    logic [ADDR_WIDTH-1:0] write_addr_reg;
+    logic [ADDR_WIDTH-1:0] read_addr_reg;
+    logic [DATA_WIDTH-1:0] write_data_reg;
+    logic we_reg;
+    //блок условной генерации
+generate
+    if(OUTPUT_REGISTERED) begin
+        always @(posedge clk) begin
+            write_addr_reg <= write_addr;
+            write_data_reg <= write_data;
+            read_addr_reg <= read_addr;
+            we_reg <= we;
+        end
+    end else begin
+        always_comb begin
+            write_addr_reg = write_addr;
+            write_data_reg = write_data;
+            read_addr_reg = read_addr;
+            we_reg = we;
+        end
+    end
+endgenerate
 
     // Порт записи: работает по положительному фронту тактового сигнала
     always @(posedge clk) begin
-        if (we) begin
-            ram[write_addr] <= write_data;
+        if (we_reg) begin
+            ram[write_addr_reg] <= write_data_reg;
         end
     end
 
     // Порт чтения: также работает по положительному фронту тактового сигнала
+
     always @(posedge clk) begin
-        read_data <= ram[read_addr];
+        read_data <= ram[read_addr_reg];
     end
 
 endmodule

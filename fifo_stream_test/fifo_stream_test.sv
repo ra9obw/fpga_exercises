@@ -243,7 +243,6 @@ module stream_pipeline_adapter#(
             pipe_load_cnt <= 0;
         end else begin
             in_valid_pipe <= {in_valid_pipe[$size(in_valid_pipe)-2:0], in_fire};
-            // pipe_load_cnt <= pipe_load_cnt + (in_fire & !pipe_is_full) - (out_fire & !pipe_is_empty);
             if(in_fire & !out_fire & !pipe_is_full) 
                 pipe_load_cnt <= pipe_load_cnt + 1;
             else if(!in_fire & out_fire & !pipe_is_empty) 
@@ -268,9 +267,8 @@ generate
             .out_data    (out_data)
         );
     end else begin
-        // pipeline_adapter_shiftreg_storage 
-        // pipeline_adapter_mem_storage 
-        pipeline_adapter_mem_v2_storage
+        pipeline_adapter_mem_storage
+        // pipeline_adapter_shiftreg_storage
         #(
             .WDTH(WDTH),
             .DEPTH(STORAGE_DEPTH)
@@ -291,186 +289,6 @@ endgenerate
 endmodule
 
 
-module pipeline_adapter_mem_v2_storage#(
-    parameter WDTH = 32,
-    parameter DEPTH = 10
-)(
-    input		        clk,
-	input		        reset,
-    input  [WDTH-1:0]   in_data,
-    input               in_valid,
-    input               out_ready,
-    output logic [WDTH-1:0]   out_data,
-    output logic        out_valid
-);
-
-    `define INCR_WRAP(reg, max) (reg == max) ? 0 : reg + 1
-
-    localparam PIPE_CNT_BASE = $clog2(DEPTH);
-
-    logic [PIPE_CNT_BASE-1:0] wr_cnt;
-    logic [PIPE_CNT_BASE-1:0] rd_cnt;
-    logic [PIPE_CNT_BASE-1:0] rd_next_cnt;
-
-    logic [WDTH-1:0] bypass_data;
-
-    logic addr_delta_is_one;
-    logic [$clog2(DEPTH):0] item_count;
-
-    wire empty;
-    assign empty = (wr_cnt == rd_cnt);
-
-    logic out_fire;
-    assign out_fire = (out_valid & out_ready);
-
-    always_ff @(posedge clk or posedge reset) begin
-        if(reset) begin
-            wr_cnt <= 0;
-            rd_cnt <= 0;
-            rd_next_cnt <= 1;
-            bypass_data <= 0;
-            item_count <= 0;
-        end else begin
-
-            if(out_fire) begin
-                rd_cnt <= `INCR_WRAP(rd_cnt, DEPTH-1);
-                rd_next_cnt <= `INCR_WRAP(rd_next_cnt, DEPTH-1);
-            end
-            if(in_valid) begin
-                wr_cnt <= `INCR_WRAP(wr_cnt, DEPTH-1);
-            end
-            
-            case({in_valid, out_fire})
-                2'b10: item_count <= item_count + 1;
-                2'b01: item_count <= item_count - 1;
-                2'b11: item_count <= item_count;
-                default: item_count <= item_count;
-            endcase
-
-            if(in_valid)
-                bypass_data <= in_data;
-        end
-    end
-
-    assign addr_delta_is_one = (item_count == 1);
-
-    wire [WDTH-1:0] mem_rdata;
-    wire [WDTH-1:0] next_addr_data;
-
-    simple_dual_port_ram #(
-        .DATA_WIDTH(WDTH),
-        .ADDR_WIDTH(PIPE_CNT_BASE)
-    ) dp_ram (
-        .clk(clk),
-        .we(in_valid),
-        .write_addr(wr_cnt),
-        .read_addr(out_fire ? rd_next_cnt : rd_cnt),
-        .write_data(in_data),
-        .read_data(mem_rdata)
-    );
-
-    always_comb begin
-        out_valid = (in_valid & out_ready) || !empty;
-        out_data = empty ? in_data : (addr_delta_is_one ? bypass_data : mem_rdata);
-    end
-
-endmodule
-
-
-module pipeline_adapter_mem_deepseek_storage#(
-    parameter WDTH = 32,
-    parameter DEPTH = 10
-)(
-    input		        clk,
-    input		        reset,
-    input  [WDTH-1:0]   in_data,
-    input               in_valid,
-    input               out_ready,
-    output logic [WDTH-1:0]   out_data,
-    output logic        out_valid
-);
-
-    `define INCR_WRAP(reg, max) (reg == max) ? 0 : reg + 1
-
-    localparam PIPE_CNT_BASE = $clog2(DEPTH);
-
-    logic [PIPE_CNT_BASE-1:0] wr_cnt;
-    logic [PIPE_CNT_BASE-1:0] rd_cnt;
-    logic [PIPE_CNT_BASE-1:0] rd_cnt_next;  // Добавляем
-
-    logic [WDTH-1:0] bypass_data;
-    logic [WDTH-1:0] mem_rdata;
-    logic rd_cnt_changed;
-
-    logic [$clog2(DEPTH):0] item_count;
-
-    wire empty;
-    assign empty = (wr_cnt == rd_cnt);
-
-    logic out_fire;
-    assign out_fire = (out_valid & out_ready);
-
-    // Комбинаторный расчет следующего адреса чтения
-    assign rd_cnt_next = `INCR_WRAP(rd_cnt, DEPTH-1);
-
-    always_ff @(posedge clk or posedge reset) begin
-        if(reset) begin
-            wr_cnt <= 0;
-            rd_cnt <= 0;
-            bypass_data <= 0;
-            rd_cnt_changed <= 0;
-            item_count <= 0;
-        end else begin
-            if(out_fire) 
-                rd_cnt <= rd_cnt_next;
-            if(in_valid) begin
-                wr_cnt <= `INCR_WRAP(wr_cnt, DEPTH-1);
-            end
-            
-            case({in_valid, out_fire})
-                2'b10: item_count <= item_count + 1;
-                2'b01: item_count <= item_count - 1;
-                2'b11: item_count <= item_count;
-                default: item_count <= item_count;
-            endcase
-
-            rd_cnt_changed <= out_fire;
-            if(in_valid)
-                bypass_data <= in_data;
-        end
-    end
-
-    // Одна память
-    simple_dual_port_ram #(
-        .DATA_WIDTH(WDTH),
-        .ADDR_WIDTH(PIPE_CNT_BASE)
-    ) dp_ram (
-        .clk(clk),
-        .we(in_valid),
-        .write_addr(wr_cnt),
-        .read_addr(out_fire ? rd_cnt_next : rd_cnt),  // Ключевое изменение!
-        .write_data(in_data),
-        .read_data(mem_rdata)
-    );
-    wire addr_delta_is_one;
-    assign addr_delta_is_one = (item_count == 1);
-    // Логика выбора данных
-    always_comb begin
-        out_valid = (in_valid & out_ready) || !empty;
-        
-        if (empty) begin
-            out_data = in_data;
-        end else if (addr_delta_is_one) begin
-            out_data = bypass_data;
-        end else begin
-            out_data = mem_rdata;
-        end
-    end
-
-endmodule
-
-
-
 module pipeline_adapter_mem_storage#(
     parameter WDTH = 32,
     parameter DEPTH = 10
@@ -480,44 +298,82 @@ module pipeline_adapter_mem_storage#(
     input  [WDTH-1:0]   in_data,
     input               in_valid,
     input               out_ready,
-    output [WDTH-1:0]   out_data,
-    output              out_valid
+    output logic [WDTH-1:0]   out_data,
+    output logic        out_valid
 );
 
-    `define INCR_WRAP(reg, max) \
-        reg <= (reg == max) ? 0 : reg + 1
+    `define INCR_WRAP(reg, max) (reg == max) ? 0 : reg + 1
 
-    localparam PIPE_CNT_BASE = $clog2(DEPTH);
+    localparam ADDR_WDTH = $clog2(DEPTH);
 
-    logic [WDTH-1:0] data[DEPTH];
-    logic [PIPE_CNT_BASE-1:0] wr_cnt;
-    logic [PIPE_CNT_BASE-1:0] rd_cnt;
-    logic empty;
+    logic [ADDR_WDTH-1:0] wr_cnt;
+    logic [ADDR_WDTH-1:0] rd_cnt;
 
-    logic [WDTH-1:0] mem_data;
-    assign mem_data = data[rd_cnt];
+    logic [WDTH-1:0] bypass_data;
+
+    logic [$clog2(DEPTH):0] item_count;
+
+    wire empty;
+    assign empty = (item_count == 0);
+
+    logic out_fire;
+    assign out_fire = (out_valid & out_ready);
+
+    wire [WDTH-1:0] mem_rdata;
+
+    logic mem_valid;
 
     always_ff @(posedge clk or posedge reset) begin
         if(reset) begin
             wr_cnt <= 0;
-            rd_cnt <= 0;
-            // for (int i = 0; i<DEPTH; i=i+1) begin
-            //     data[i] <= 0;
-            // end
+            rd_cnt <= 1;
+            bypass_data <= 0;
+            item_count <= 0;
+            mem_valid <= 0;
+    
         end else begin
-            if((out_valid || in_valid) & out_ready) 
-                `INCR_WRAP(rd_cnt, DEPTH-1);
-            if(in_valid) begin
-                `INCR_WRAP(wr_cnt, DEPTH-1);
-                data[wr_cnt] <= in_data;
+
+            if(out_fire & !empty) begin
+                rd_cnt <= `INCR_WRAP(rd_cnt, DEPTH-1);
             end
+            if(in_valid & (!out_ready || !empty)) begin
+                wr_cnt <= `INCR_WRAP(wr_cnt, DEPTH-1);
+            end
+            
+            case({in_valid, out_fire})
+                2'b10: item_count <= item_count + 1;
+                2'b01: item_count <= item_count - 1;
+                2'b11: item_count <= item_count;
+                default: item_count <= item_count;
+            endcase
+
+            mem_valid <= out_fire & (item_count > 1);
+
+            if(in_valid & (empty || (out_fire & (item_count == 1))))
+                bypass_data <= in_data;
+            else if(mem_valid)
+                bypass_data <= mem_rdata;
         end
     end
 
-    assign empty = (wr_cnt == rd_cnt);
 
-    assign out_valid = (in_valid & out_ready) || (!empty);
-    assign out_data = (out_ready & empty) ? in_data : mem_data;
+    simple_dual_port_ram #(
+        .DATA_WIDTH(WDTH),
+        .ADDR_WIDTH(ADDR_WDTH)
+    ) dp_ram (
+        .clk(clk),
+        .we(in_valid),
+        .write_addr(wr_cnt),
+        .read_addr(rd_cnt),
+        .write_data(in_data),
+        .read_data(mem_rdata)
+    );
+
+    always_comb begin
+        out_valid = (in_valid & empty) || !empty;
+        out_data = empty ? in_data : (mem_valid ? mem_rdata : bypass_data );
+    end
+
 
 endmodule
 
@@ -568,8 +424,8 @@ module pipeline_adapter_shiftreg_storage#(
         end
     end
 
-    assign out_data = (out_ready & empty) ? in_data : shift_storage_head;
-    assign out_valid = (out_ready & in_valid) || !empty;
+    assign out_data = (empty) ? in_data : shift_storage_head;
+    assign out_valid = (empty & in_valid) || !empty;
 
 endmodule
 
