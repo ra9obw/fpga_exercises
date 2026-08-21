@@ -29,6 +29,7 @@ module stream_pipeline_adapter_tb();
     integer out_valid_cnt = 0;
     integer received_count = 0;
     integer errors = 0;
+    integer total_errors = 0;
     logic detailed_log;
     integer send_size;
     
@@ -88,7 +89,7 @@ module stream_pipeline_adapter_tb();
     endtask
 
     task automatic final_report(); 
-        $display("\n=== TESTS DONE: %0d, SUCCESSFULL: %0d, FAILED: %0d ===", test_count, successfull_tests, failed_tests);
+        $display("\n=== TESTS DONE: %0d, SUCCESSFULL: %0d, FAILED: %0d, Total Errors: %0d  ===", test_count, successfull_tests, failed_tests, total_errors);
         if(test_count != successfull_tests + failed_tests )
             $warning("sum of sucessfull and falid tests not equals total test count!");
     endtask
@@ -217,7 +218,7 @@ module stream_pipeline_adapter_tb();
         assert (!in_ready) else $display("in should be not ready %t", $time);
         assert (out_valid) else $display("out should be valid %t", $time);
         
-        drive_out_ready(PIPE_DLY, 3*PIPE_DLY, 2000);
+        drive_out_ready(PIPE_DLY, 3*PIPE_DLY);
         #10
         assert (!out_valid) else $display("out should not be valid %t", $time);
         
@@ -422,6 +423,23 @@ module stream_pipeline_adapter_tb();
         reset_counters();
 
 
+        send_size = 20*PIPE_DLY;
+        seed = 24567;
+        test_count++;
+        $display("\n=== TEST%d push %d items with gaps, wait PIPE_DLY cycles, set out ready with gaps ===", test_count, send_size);
+        out_ready <= 0;
+        #10
+        assert (in_ready) else $display("in should be ready %t", $time);
+
+        fork
+            push_data(send_size, 3*send_size, 1000, 1, 1);
+            drive_out_ready(send_size, 3*send_size, 1.5*STORAGE_DEPTH, 1);
+        join
+        
+        repeat (10) @(posedge clk);
+        check_results();
+        reset_counters();
+
 
         send_size = 2*PIPE_DLY;
         test_count++;
@@ -455,9 +473,10 @@ module stream_pipeline_adapter_tb();
                 automatic reg [WDTH-1:0] expected = expected_queue.pop_front();
                 
                 if(out_data !== expected) begin
-                    $error("[%t] DATA MISMATCH: Expected 0x%08h, Got 0x%08h", 
-                           $time, expected, out_data);
+                    $error("[%t] DATA MISMATCH: Expected 0x%08h, Got 0x%08h\t%s\t%s", 
+                           $time, expected, out_data, uut.genblk2.storage_int.st_inst.current_state, uut.genblk2.storage_int.st_inst.next_state);
                     errors = errors + 1;
+                    total_errors++;
                     $pause;
                 end else begin
                     if(detailed_log) $display("[%t] VERIFIED[%0d]: 0x%08h OK", $time, received_count-1, out_data);
@@ -465,6 +484,7 @@ module stream_pipeline_adapter_tb();
             end else begin
                 $warning("[%t] Unexpected data: 0x%08h", $time, out_data);
                 errors = errors + 1;
+                total_errors++;
             end
         end
     end

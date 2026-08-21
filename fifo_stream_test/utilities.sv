@@ -49,6 +49,7 @@ module simple_dual_port_ram #(
     logic [ADDR_WIDTH-1:0] write_addr_reg;
     logic [ADDR_WIDTH-1:0] read_addr_reg;
     logic [DATA_WIDTH-1:0] write_data_reg;
+    // logic [DATA_WIDTH-1:0] read_data_buf;
     logic we_reg;
     //блок условной генерации
 generate
@@ -58,6 +59,7 @@ generate
             write_data_reg <= write_data;
             read_addr_reg <= read_addr;
             we_reg <= we;
+            // read_data_buf <= ram[read_addr_reg];
         end
     end else begin
         always_comb begin
@@ -65,6 +67,7 @@ generate
             write_data_reg = write_data;
             read_addr_reg = read_addr;
             we_reg = we;
+            // read_data_buf = ram[read_addr_reg];
         end
     end
 endgenerate
@@ -79,7 +82,7 @@ endgenerate
     // Порт чтения: также работает по положительному фронту тактового сигнала
 
     always @(posedge clk) begin
-        read_data <= ram[read_addr_reg];
+        read_data <= /*read_data_buf;//*/ram[read_addr_reg];
     end
 
 endmodule

@@ -395,8 +395,293 @@ module pipeline_adapter_2ticks_mem_storage#(
             initial $error("MEM DEPTH should be 2 or more: %0d", DEPTH);
     endgenerate
 
+    logic  [WDTH-1:0]   rd_data;
+    logic empty;
+
+    my_look_ahead_fifo #(
+        .DATA_WIDTH(WDTH),
+        .DEPTH(DEPTH)
+    )st_inst(
+        .clk        (clk),
+        .rst_n      (!reset),
+        .wr_en      (in_valid & (!out_ready || !empty)),
+        .wr_data    (in_data),
+        // .full       (),
+        .rd_en      (!empty & out_ready),
+        .rd_data    (rd_data),
+        // .valid      (),
+        .empty      (empty)
+    );
+
+    assign out_data = empty ? in_data : rd_data;
+    assign out_valid = empty ? in_valid : 1'b1;
+
+endmodule
+
+
+module look_ahead_fifo #(
+    parameter DATA_WIDTH = 32,
+    parameter DEPTH      = 64
+)(
+    input  logic                     clk,
+    input  logic                     rst_n,
+    
+    // Интерфейс записи
+    input  logic                     wr_en,
+    input  logic [DATA_WIDTH-1:0]    wr_data,
+    output logic                     full,
+    
+    // Интерфейс чтения
+    input  logic                     rd_en,
+    output logic [DATA_WIDTH-1:0]    rd_data,
+    output logic                     valid,      // Данные на выходе валидны
+    output logic                     empty
+);
+
+    localparam ADDR_WIDTH = $clog2(DEPTH);
+ 
+    // ========================================
+    // 1. Сигналы управления памятью
+    // ========================================
+    logic [ADDR_WIDTH-1:0] wr_cnt;           // Текущий адрес записи
+    logic [ADDR_WIDTH-1:0] rd_cnt;           // Текущий адрес чтения (то, что должны выдать)
+    
+    logic [ADDR_WIDTH-1:0] rd_cnt_lookahead; // Адрес для упреждающего чтения (+2)
+    logic [ADDR_WIDTH-1:0] rd_cnt_pipe1;     // Пайплайн 1 для отслеживания запросов
+    
+    logic [DATA_WIDTH-1:0] mem_rdata_tmp;    // Данные из памяти (с задержкой 2 такта)
+    logic [DATA_WIDTH-1:0] mem_rdata_pipe;   // Пайплайн для данных из памяти
+    
+    // ========================================
+    // 2. Счётчики указателей
+    // ========================================
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            wr_cnt <= '0;
+            rd_cnt <= '0;
+        end else begin
+            // Обновление указателя записи
+            if (wr_en && !full) begin
+                wr_cnt <= wr_cnt + 1'b1;
+            end
+            
+            // Обновление указателя чтения (когда клиент реально читает)
+            if (rd_en && !empty) begin
+                rd_cnt <= rd_cnt + 1'b1;
+            end
+        end
+    end
+    
+    // ========================================
+    // 3. Look-ahead адрес для упреждающего чтения (+2)
+    // ========================================
+    // Так как память имеет задержку 2 такта, читаем с упреждением на 2 адреса
+    assign rd_cnt_lookahead = rd_cnt + 2'd2;
+    
+    // ========================================
+    // 4. Инстанцирование двухпортовой памяти
+    // ========================================
+    simple_dual_port_ram #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .OUTPUT_REGISTERED(1)  // Задержка чтения = 2 такта
+    ) dp_ram (
+        .clk        (clk),
+        .we         (wr_en && !full),
+        .write_addr (wr_cnt),
+        .read_addr  (rd_cnt_lookahead),  // Читаем с упреждением на 2!
+        .write_data (wr_data),
+        .read_data  (mem_rdata_tmp)
+    );
+    
+    // ========================================
+    // 5. Пайплайн для данных и отслеживание запросов
+    // ========================================
+    // Пайплайн 1: данные через 1 такт после чтения из памяти
+    // Пайплайн 2: данные через 2 такта (готовы к выдаче)
+    logic [DATA_WIDTH-1:0] mem_rdata_pipe1;
+    logic [DATA_WIDTH-1:0] mem_rdata_pipe2;
+    
+    // Отслеживаем, какие адреса были запрошены
+    logic [ADDR_WIDTH-1:0] rd_addr_requested;
+    logic                  rd_request_pending;
+    
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            mem_rdata_pipe1 <= '0;
+            mem_rdata_pipe2 <= '0;
+            rd_addr_requested <= '0;
+            rd_request_pending <= 1'b0;
+        end else begin
+            // Пайплайн данных
+            mem_rdata_pipe1 <= mem_rdata_tmp;
+            mem_rdata_pipe2 <= mem_rdata_pipe1;
+            
+            // Запоминаем, какой адрес был запрошен для упреждающего чтения
+            if (!full) begin  // Всегда читаем с упреждением, если не full
+                rd_addr_requested <= rd_cnt_lookahead;
+                rd_request_pending <= 1'b1;
+            end else begin
+                rd_request_pending <= 1'b0;
+            end
+        end
+    end
+    
+    // ========================================
+    // 6. Определение валидности данных из памяти
+    // ========================================
+    // Данные из памяти валидны, когда:
+    // - Прошло 2 такта после запроса чтения
+    // - Запрошенный адрес соответствует текущему rd_cnt
+    logic mem_data_valid;
+    
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            mem_data_valid <= 1'b0;
+        end else begin
+            // Данные становятся валидными через 2 такта после запроса
+            // и если запрошенный адрес соответствует rd_cnt
+            if (rd_request_pending && (rd_addr_requested == rd_cnt)) begin
+                mem_data_valid <= 1'b1;
+            end else if (rd_en && !empty) begin
+                // Сбрасываем после чтения
+                mem_data_valid <= 1'b0;
+            end
+        end
+    end
+    
+    // ========================================
+    // 7. Формирование выходных данных с нулевой задержкой
+    // ========================================
+    // Регистр для bypass данных (свежезаписанных)
+    logic [DATA_WIDTH-1:0] bypass_data;
+    logic                  bypass_valid;
+    
+    // Регистр для данных из памяти (готовы к выдаче)
+    logic [DATA_WIDTH-1:0] mem_ready_data;
+    logic                  mem_ready_valid;
+    
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            bypass_data  <= '0;
+            bypass_valid <= 1'b0;
+            mem_ready_data <= '0;
+            mem_ready_valid <= 1'b0;
+        end else begin
+            // --- Bypass logic ---
+            // Если FIFO был пуст и происходит запись, данные сразу доступны
+            if (wr_en && !full && (rd_cnt == wr_cnt)) begin
+                bypass_data  <= wr_data;
+                bypass_valid <= 1'b1;
+            end else if (rd_en && !empty && bypass_valid) begin
+                // Если прочитали bypass данные, сбрасываем флаг
+                bypass_valid <= 1'b0;
+            end
+            
+            // --- Memory data ready ---
+            // Данные из памяти готовы к выдаче
+            if (mem_data_valid) begin
+                mem_ready_data  <= mem_rdata_pipe2;
+                mem_ready_valid <= 1'b1;
+            end else if (rd_en && !empty && mem_ready_valid) begin
+                // Если прочитали данные из памяти, сбрасываем флаг
+                mem_ready_valid <= 1'b0;
+            end
+        end
+    end
+    
+    // ========================================
+    // 8. Выходной мультиплексор
+    // ========================================
+    always_comb begin
+        // Приоритет: bypass (свежезаписанные данные) > данные из памяти
+        if (bypass_valid) begin
+            rd_data = bypass_data;
+            valid   = 1'b1;
+        end else if (mem_ready_valid) begin
+            rd_data = mem_ready_data;
+            valid   = 1'b1;
+        end else if (!empty && (rd_cnt == wr_cnt - 1)) begin
+            // Специальный случай: данные только что записаны в прошлом такте
+            // и ещё не попали в память для чтения
+            // (это обрабатывается bypass логикой)
+            rd_data = '0;
+            valid   = 1'b0;
+        end else begin
+            rd_data = '0;
+            valid   = 1'b0;
+        end
+    end
+    
+    // ========================================
+    // 9. Флаги full и empty
+    // ========================================
+    logic [ADDR_WIDTH:0] count;
+    
+    // Количество элементов в FIFO с учётом pending операций
+    always_comb begin
+        count = wr_cnt - rd_cnt;
+        // Корректировка для wrap-around
+        if (wr_cnt < rd_cnt) begin
+            count = wr_cnt + DEPTH - rd_cnt;
+        end
+    end
+    
+    assign empty = (count == 0);
+    assign full  = (count >= DEPTH - 1);  // Оставляем один слот для избежания проблем
+    
+    // ========================================
+    // 10. Альтернативная реализация с использованием
+    //     теневого регистра (shadow register)
+    // ========================================
+    /*
+    // Более простой подход: использовать shadow register
+    // для хранения последних записанных данных
+    logic [DATA_WIDTH-1:0] shadow_data;
+    logic                  shadow_valid;
+    
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            shadow_data <= '0;
+            shadow_valid <= 1'b0;
+        end else begin
+            if (wr_en && !full) begin
+                shadow_data <= wr_data;
+                if (rd_cnt == wr_cnt) begin  // FIFO был пуст
+                    shadow_valid <= 1'b1;
+                end
+            end else if (rd_en && !empty && shadow_valid) begin
+                shadow_valid <= 1'b0;
+            end
+        end
+    end
+    */
+    
+endmodule
+    
+
+module my_look_ahead_fifo #(
+    parameter DATA_WIDTH = 32,
+    parameter DEPTH      = 64
+)(
+    input  logic                     clk,
+    input  logic                     rst_n,
+    
+    // Интерфейс записи
+    input  logic                     wr_en,
+    input  logic [DATA_WIDTH-1:0]    wr_data,
+    output logic                     full,
+    
+    // Интерфейс чтения
+    input  logic                     rd_en,
+    output logic [DATA_WIDTH-1:0]    rd_data,
+    output logic                     valid,
+    output logic                     empty
+);
+
     `define INCR_WRAP(reg, max) (reg == max) ? 0 : reg + 1
     `define SHIFT_UD(reg) reg[$size(reg)-1:0]
+
 
     localparam ADDR_WDTH = $clog2(DEPTH);
     localparam MEM_PIPE_DELAY = 2;
@@ -406,64 +691,74 @@ module pipeline_adapter_2ticks_mem_storage#(
 
     logic [$clog2(DEPTH):0] items;
 
-    wire empty;
     assign empty = (items == 0);
 
     logic out_fire;
-    assign out_fire = (out_valid & out_ready);
+    assign out_fire = (valid & rd_en);
 
-    wire [WDTH-1:0] mem_rdata;
+    wire [DATA_WIDTH-1:0] mem_rdata;
 
     wire inc_items;
     wire dec_items;
 
-    assign inc_items = in_valid & !out_fire;
-    assign dec_items = !in_valid & out_fire;
+    assign inc_items = wr_en & !out_fire;
+    assign dec_items = !wr_en & out_fire;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if(reset) begin
+    logic [MEM_PIPE_DELAY-1:0] memory_bypass_str;
+    logic [DATA_WIDTH-1:0] memory_bypass_path[MEM_PIPE_DELAY];
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if(!rst_n) begin
             wr_cnt <= 0;
-            rd_cnt <= 2;
+            rd_cnt <= MEM_PIPE_DELAY;
             items <= 0;
+            memory_bypass_str <= 0;
+            for(int i=0; i<MEM_PIPE_DELAY; i++)
+                memory_bypass_path[i] <= 0;
         end else begin
             if(out_fire & !empty) begin
                 rd_cnt <= `INCR_WRAP(rd_cnt, DEPTH-1);
             end
-            if(in_valid & (!out_ready || !empty)) begin
+            if(wr_en & (!rd_en || !empty)) begin
                 wr_cnt <= `INCR_WRAP(wr_cnt, DEPTH-1);
             end
             
-            case({in_valid, out_fire})
+            case({wr_en, out_fire})
                 2'b10: items <= items + 1;
                 2'b01: items <= items - 1;
                 2'b11: items <= items;
                 default: items <= items;
             endcase
             // items <= items + inc_items - dec_items;
-
+            memory_bypass_str <= {`SHIFT_UD(memory_bypass_str), wr_en & (rd_cnt == wr_cnt)};
+            memory_bypass_path[0] <= wr_data;
+            for(int i=1; i<MEM_PIPE_DELAY; i++)
+                memory_bypass_path[i] <= memory_bypass_path[i-1];
         end
     end
 
-    // simple_dual_port_ram #(
-    //     .DATA_WIDTH(WDTH),
-    //     .ADDR_WIDTH(ADDR_WDTH),
-    //     .OUTPUT_REGISTERED(1)
-    // ) dp_ram (
-    //     .clk(clk),
-    //     .we(in_valid),
-    //     .write_addr(wr_cnt),
-    //     .read_addr(rd_cnt),
-    //     .write_data(in_data),
-    //     .read_data(mem_rdata)
-    // );
-    true_dp_ram dp_ram (
-        .clock(clk),
-        .data(in_data),
-        .rdaddress(rd_cnt),
-        .wraddress(wr_cnt),
-        .wren(in_valid),
-        .q(mem_rdata)
+    wire [DATA_WIDTH-1:0] mem_rdata_tmp;
+    simple_dual_port_ram #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .ADDR_WIDTH(ADDR_WDTH),
+        .OUTPUT_REGISTERED(1)
+    ) dp_ram (
+        .clk(clk),
+        .we(wr_en),
+        .write_addr(wr_cnt),
+        .read_addr(rd_cnt),
+        .write_data(wr_data),
+        .read_data(mem_rdata_tmp)
     );
+    assign mem_rdata = memory_bypass_str[MEM_PIPE_DELAY-1] ? memory_bypass_path[MEM_PIPE_DELAY-1] : mem_rdata_tmp;
+    // true_dp_ram dp_ram (
+    //     .clock(clk),
+    //     .data(wr_data),
+    //     .rdaddress(rd_cnt),
+    //     .wraddress(wr_cnt),
+    //     .wren(wr_en),
+    //     .q(mem_rdata)
+    // );
 
     localparam HP_WDTH =  $clog2(MEM_PIPE_DELAY);
     logic [HP_WDTH-1:0] head_pointer;
@@ -475,8 +770,8 @@ module pipeline_adapter_2ticks_mem_storage#(
     state_t current_state, next_state;
 
 
-    always_ff @(posedge clk or posedge reset) begin
-        if(reset) begin
+    always_ff @(posedge clk or negedge rst_n) begin
+        if(!rst_n) begin
             current_state <= STREAM;
         end else begin
             current_state <= next_state;
@@ -501,46 +796,54 @@ module pipeline_adapter_2ticks_mem_storage#(
                     next_state = RESUME;
             end
             RESUME: begin
-                if((head_pointer == MEM_PIPE_DELAY-1) & !out_ready)
-                    next_state = STALL;
-                else if((head_pointer == 0) & out_ready)
-                    next_state = MEMORY;
+                if(!rd_en)
+                    next_state = MEM_BREAK;
+                else if((head_pointer == 0) & rd_en)  //lowest +1
+                    if(((items == (MEM_PIPE_DELAY+1)) & dec_items) || (items <= MEM_PIPE_DELAY ))
+                        next_state = RELEASE;
+                    else
+                        next_state = MEMORY;
             end
             MEMORY: begin
                 if((items == (MEM_PIPE_DELAY+1)) & dec_items)
                     next_state = RELEASE;
-                else if(!out_ready)
+                else if(!rd_en)
                     next_state = MEM_BREAK;
             end
             MEM_BREAK: begin
-                if((head_pointer == MEM_PIPE_DELAY-1) & dec_items)
+                if(rd_en)
+                    next_state = RESUME;
+                else if((head_pointer == MEM_PIPE_DELAY-2) & (!rd_en)) //highest -1
                     next_state = STALL;
-                else if((head_pointer == 0) & out_ready)
-                    next_state = MEMORY;
             end
             RELEASE: begin
-                if((items == 1) & out_ready)
+                if((items == 1) & dec_items)
                     next_state = STREAM;
-                else if(!out_ready)
+                else if((items == MEM_PIPE_DELAY) & inc_items)
                     next_state = MEM_BREAK;
             end
             default: begin
-                next_state = STREAM;
+                // next_state = STREAM;
             end
         endcase
     end
 
 
-    logic [WDTH-1:0] head_data[MEM_PIPE_DELAY];
-    logic [WDTH-1:0] tail_data[MEM_PIPE_DELAY];
+    logic [DATA_WIDTH-1:0] head_data[MEM_PIPE_DELAY];
+    logic [DATA_WIDTH-1:0] tail_data[MEM_PIPE_DELAY];
     logic [MEM_PIPE_DELAY-1:0] mem_readed;
+
+    logic [HP_WDTH-1:0] wait_cycles_cnt;
+    logic [HP_WDTH-1:0] mem_release_cnt;
 
     wire shift_mem_data;
     assign shift_mem_data = (current_state != STREAM) & (current_state != PAUSE);
 
-    always_ff @(posedge clk or posedge reset) begin
-        if(reset) begin
+    always_ff @(posedge clk or negedge rst_n) begin
+        if(!rst_n) begin
             head_pointer <= 0;
+            wait_cycles_cnt <= 0;
+            mem_release_cnt <= 0;
             mem_readed <= 0;
             for(int i=0; i<MEM_PIPE_DELAY; i++) begin
                 head_data[i] <= 0;
@@ -549,53 +852,74 @@ module pipeline_adapter_2ticks_mem_storage#(
         end else begin
             mem_readed <= {`SHIFT_UD(mem_readed), out_fire & (items > MEM_PIPE_DELAY)};
             //
-            if(in_valid & (current_state == STREAM) || ((next_state == PAUSE)  )) begin
-                head_data[0] <= in_data;
+            if(wr_en && ((current_state == STREAM) || (next_state == PAUSE)  )) begin
+                head_data[0] <= wr_data;
                 for(int i=1; i<MEM_PIPE_DELAY; i++) begin
                     head_data[i] <= head_data[i-1];
                 end
-            end else if(out_fire & shift_mem_data) begin
+            end else if((mem_readed[MEM_PIPE_DELAY-1] & (current_state != STALL) & (items >= MEM_PIPE_DELAY))) begin
                 head_data[0] <= mem_rdata;
                 for(int i=1; i<MEM_PIPE_DELAY; i++) begin
                     head_data[i] <= head_data[i-1];
                 end
             end
             //
-            if(in_valid) begin
-                tail_data[0] <= in_data;
+            if(wr_en) begin
+                tail_data[0] <= wr_data;
                 for(int i=1; i<MEM_PIPE_DELAY; i++) begin
                     tail_data[i] <= tail_data[i-1];
                 end
             end
             //head_pointer
             //насколько глубоко по конвейерной задержке сдвинулись
+            if(!empty)
+                if(rd_en && (wait_cycles_cnt > 0)) wait_cycles_cnt <= wait_cycles_cnt - 1;
+                else if(!rd_en && (wait_cycles_cnt < (MEM_PIPE_DELAY-1))) wait_cycles_cnt <= wait_cycles_cnt + 1;
+                else wait_cycles_cnt <= wait_cycles_cnt;
+            else
+                wait_cycles_cnt <= 0;
+
+            if(!empty)
+                if(rd_en && (mem_release_cnt < (MEM_PIPE_DELAY-1)) && (wait_cycles_cnt > 0)) mem_release_cnt <= mem_release_cnt + 1;
+                else if(!rd_en && (mem_release_cnt > 0)) mem_release_cnt <= mem_release_cnt - 1;
+                else mem_release_cnt <= mem_release_cnt;
+            else
+                mem_release_cnt <= 0;
+            
+            //mem_release_cnt == (MEM_PIPE_DELAY-1)  //режим выдачи данных из памяти
+            //если чихнёт,
+
+
             case(current_state)
                 STREAM: begin
                     head_pointer <= 0;
                 end
                 PAUSE: begin
-                    if(inc_items & (head_pointer < (MEM_PIPE_DELAY-1))) head_pointer <= head_pointer + 1;
-                    else if(dec_items & (head_pointer > 0)) head_pointer <= head_pointer - 1;
+                    if(inc_items && (head_pointer < (MEM_PIPE_DELAY-1))) head_pointer <= head_pointer + 1;
+                    else if(dec_items && (head_pointer > 0)) head_pointer <= head_pointer - 1;
                 end
                 STALL: begin
-                    head_pointer <= MEM_PIPE_DELAY-1;
+                    if(rd_en && (head_pointer > 0)) 
+                        head_pointer <= head_pointer - 1;
+                    else
+                        head_pointer <= MEM_PIPE_DELAY-1;
                 end
                 RESUME: begin
-                    if(!out_ready) head_pointer <= head_pointer + 1;
-                    else if(out_ready) head_pointer <= head_pointer - 1;
+                    if(rd_en && (head_pointer > 0)) 
+                        head_pointer <= head_pointer - 1;
                 end
                 MEMORY: begin
                     head_pointer <= 0;
                 end
                 MEM_BREAK: begin
-                    if(!out_ready) head_pointer <= head_pointer + 1;
-                    else head_pointer <= head_pointer - 1;
+                    if(!rd_en && (head_pointer < (MEM_PIPE_DELAY-1)) ) 
+                        head_pointer <= head_pointer + 1;
                 end
                 RELEASE: begin
-                    if(dec_items) head_pointer <= head_pointer + 1;
+                    if(dec_items && (head_pointer < (MEM_PIPE_DELAY-1))) head_pointer <= head_pointer + 1;
                 end
                 default: begin
-                    
+                    // head_pointer <= 0;
                 end            
             endcase
     
@@ -603,31 +927,32 @@ module pipeline_adapter_2ticks_mem_storage#(
     end
 
     always_comb begin
-        out_valid = (in_valid & empty) || !empty;
-        // out_data = empty ? in_data : (&mem_readed ? mem_rdata : head_data[head_pointer]);
+        valid = !empty;
+        // rd_data = empty ? wr_data : (&mem_readed ? mem_rdata : head_data[head_pointer]);
         case(current_state)
             STREAM: begin
-                out_data = in_data;
+                rd_data = wr_data;
             end
             PAUSE: begin
-                out_data = head_data[head_pointer];
+                rd_data = head_data[head_pointer];
             end
             STALL: begin
-                out_data = head_data[head_pointer];
+                rd_data = head_data[head_pointer];
             end
             RESUME: begin
-                out_data = head_data[head_pointer];
+                rd_data = head_data[head_pointer];
             end
             MEMORY: begin
-                out_data = mem_rdata;
+                rd_data = mem_rdata;
             end
             MEM_BREAK: begin
-                out_data = head_data[head_pointer];
+                rd_data = head_data[head_pointer];
             end
             RELEASE: begin
-                out_data = tail_data[MEM_PIPE_DELAY-1-head_pointer];
+                rd_data = tail_data[items-1];
             end
-            default: begin        
+            default: begin
+                // rd_data = 0;      
             end
         endcase
     end
