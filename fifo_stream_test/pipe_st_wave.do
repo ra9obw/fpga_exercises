@@ -15,7 +15,7 @@ add wave -noupdate /stream_pipeline_adapter_tb/errors
 add wave -noupdate /stream_pipeline_adapter_tb/detailed_log
 add wave -noupdate /stream_pipeline_adapter_tb/i
 add wave -noupdate /stream_pipeline_adapter_tb/seed
-add wave -noupdate -format Analog-Step -height 84 -max 10.0 -radix unsigned -childformat {{{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[3]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[2]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[1]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[0]} -radix unsigned}} -subitemconfig {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[3]} {-height 13 -radix unsigned} {/stream_pipeline_adapter_tb/uut/pipe_load_cnt[2]} {-height 13 -radix unsigned} {/stream_pipeline_adapter_tb/uut/pipe_load_cnt[1]} {-height 13 -radix unsigned} {/stream_pipeline_adapter_tb/uut/pipe_load_cnt[0]} {-height 13 -radix unsigned}} /stream_pipeline_adapter_tb/uut/pipe_load_cnt
+add wave -noupdate -format Analog-Step -height 84 -max 10.0 -radix unsigned -childformat {{{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[3]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[2]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[1]} -radix unsigned} {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[0]} -radix unsigned}} -subitemconfig {{/stream_pipeline_adapter_tb/uut/pipe_load_cnt[3]} {-height 15 -radix unsigned} {/stream_pipeline_adapter_tb/uut/pipe_load_cnt[2]} {-height 15 -radix unsigned} {/stream_pipeline_adapter_tb/uut/pipe_load_cnt[1]} {-height 15 -radix unsigned} {/stream_pipeline_adapter_tb/uut/pipe_load_cnt[0]} {-height 15 -radix unsigned}} /stream_pipeline_adapter_tb/uut/pipe_load_cnt
 add wave -noupdate -radix hexadecimal /stream_pipeline_adapter_tb/uut/in_data
 add wave -noupdate /stream_pipeline_adapter_tb/uut/genblk2/storage_int/in_valid
 add wave -noupdate -radix hexadecimal /stream_pipeline_adapter_tb/uut/genblk2/storage_int/in_data
@@ -24,15 +24,17 @@ add wave -noupdate /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/c
 add wave -noupdate /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/next_state
 add wave -noupdate /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/empty
 add wave -noupdate -radix unsigned /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/head_pointer
-add wave -noupdate /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/items
+add wave -noupdate -radix unsigned /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/items
 add wave -noupdate -radix unsigned /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/rd_cnt
 add wave -noupdate -radix unsigned /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/wr_cnt
-add wave -noupdate -radix hexadecimal /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/head_data
-add wave -noupdate -radix hexadecimal /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/tail_data
+add wave -noupdate -radix hexadecimal -childformat {{{/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/head_data[0]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/head_data[1]} -radix hexadecimal}} -expand -subitemconfig {{/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/head_data[0]} {-height 15 -radix hexadecimal} {/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/head_data[1]} {-height 15 -radix hexadecimal}} /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/head_data
+add wave -noupdate -radix hexadecimal -childformat {{{/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/tail_data[0]} -radix hexadecimal} {{/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/tail_data[1]} -radix hexadecimal}} -expand -subitemconfig {{/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/tail_data[0]} {-height 15 -radix hexadecimal} {/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/tail_data[1]} {-height 15 -radix hexadecimal}} /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/tail_data
+add wave -noupdate {/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/mem_readed[1]}
+add wave -noupdate -radix hexadecimal {/stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/tail_data[1]}
 add wave -noupdate -radix hexadecimal /stream_pipeline_adapter_tb/uut/genblk2/storage_int/st_inst/mem_rdata
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {{Cursor 1} {10757969 ps} 0} {{Cursor 2} {17241543 ps} 0} {{Cursor 3} {3539779 ps} 0}
-quietly wave cursor active 1
+WaveRestoreCursors {{Cursor 1} {10757969 ps} 0} {{Cursor 2} {28432766 ps} 0} {{Cursor 3} {3539779 ps} 0}
+quietly wave cursor active 2
 configure wave -namecolwidth 554
 configure wave -valuecolwidth 119
 configure wave -justifyvalue left
@@ -47,4 +49,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ns
 update
-WaveRestoreZoom {10634921 ps} {10935085 ps}
+WaveRestoreZoom {28386388 ps} {28558368 ps}

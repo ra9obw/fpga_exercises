@@ -398,7 +398,7 @@ module pipeline_adapter_2ticks_mem_storage#(
     logic  [WDTH-1:0]   rd_data;
     logic empty;
 
-    my_look_ahead_fifo #(
+    look_ahead_fifo #(
         .DATA_WIDTH(WDTH),
         .DEPTH(DEPTH)
     )st_inst(
@@ -417,250 +417,9 @@ module pipeline_adapter_2ticks_mem_storage#(
     assign out_valid = empty ? in_valid : 1'b1;
 
 endmodule
-
+    
 
 module look_ahead_fifo #(
-    parameter DATA_WIDTH = 32,
-    parameter DEPTH      = 64
-)(
-    input  logic                     clk,
-    input  logic                     rst_n,
-    
-    // Интерфейс записи
-    input  logic                     wr_en,
-    input  logic [DATA_WIDTH-1:0]    wr_data,
-    output logic                     full,
-    
-    // Интерфейс чтения
-    input  logic                     rd_en,
-    output logic [DATA_WIDTH-1:0]    rd_data,
-    output logic                     valid,      // Данные на выходе валидны
-    output logic                     empty
-);
-
-    localparam ADDR_WIDTH = $clog2(DEPTH);
- 
-    // ========================================
-    // 1. Сигналы управления памятью
-    // ========================================
-    logic [ADDR_WIDTH-1:0] wr_cnt;           // Текущий адрес записи
-    logic [ADDR_WIDTH-1:0] rd_cnt;           // Текущий адрес чтения (то, что должны выдать)
-    
-    logic [ADDR_WIDTH-1:0] rd_cnt_lookahead; // Адрес для упреждающего чтения (+2)
-    logic [ADDR_WIDTH-1:0] rd_cnt_pipe1;     // Пайплайн 1 для отслеживания запросов
-    
-    logic [DATA_WIDTH-1:0] mem_rdata_tmp;    // Данные из памяти (с задержкой 2 такта)
-    logic [DATA_WIDTH-1:0] mem_rdata_pipe;   // Пайплайн для данных из памяти
-    
-    // ========================================
-    // 2. Счётчики указателей
-    // ========================================
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            wr_cnt <= '0;
-            rd_cnt <= '0;
-        end else begin
-            // Обновление указателя записи
-            if (wr_en && !full) begin
-                wr_cnt <= wr_cnt + 1'b1;
-            end
-            
-            // Обновление указателя чтения (когда клиент реально читает)
-            if (rd_en && !empty) begin
-                rd_cnt <= rd_cnt + 1'b1;
-            end
-        end
-    end
-    
-    // ========================================
-    // 3. Look-ahead адрес для упреждающего чтения (+2)
-    // ========================================
-    // Так как память имеет задержку 2 такта, читаем с упреждением на 2 адреса
-    assign rd_cnt_lookahead = rd_cnt + 2'd2;
-    
-    // ========================================
-    // 4. Инстанцирование двухпортовой памяти
-    // ========================================
-    simple_dual_port_ram #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .ADDR_WIDTH(ADDR_WIDTH),
-        .OUTPUT_REGISTERED(1)  // Задержка чтения = 2 такта
-    ) dp_ram (
-        .clk        (clk),
-        .we         (wr_en && !full),
-        .write_addr (wr_cnt),
-        .read_addr  (rd_cnt_lookahead),  // Читаем с упреждением на 2!
-        .write_data (wr_data),
-        .read_data  (mem_rdata_tmp)
-    );
-    
-    // ========================================
-    // 5. Пайплайн для данных и отслеживание запросов
-    // ========================================
-    // Пайплайн 1: данные через 1 такт после чтения из памяти
-    // Пайплайн 2: данные через 2 такта (готовы к выдаче)
-    logic [DATA_WIDTH-1:0] mem_rdata_pipe1;
-    logic [DATA_WIDTH-1:0] mem_rdata_pipe2;
-    
-    // Отслеживаем, какие адреса были запрошены
-    logic [ADDR_WIDTH-1:0] rd_addr_requested;
-    logic                  rd_request_pending;
-    
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            mem_rdata_pipe1 <= '0;
-            mem_rdata_pipe2 <= '0;
-            rd_addr_requested <= '0;
-            rd_request_pending <= 1'b0;
-        end else begin
-            // Пайплайн данных
-            mem_rdata_pipe1 <= mem_rdata_tmp;
-            mem_rdata_pipe2 <= mem_rdata_pipe1;
-            
-            // Запоминаем, какой адрес был запрошен для упреждающего чтения
-            if (!full) begin  // Всегда читаем с упреждением, если не full
-                rd_addr_requested <= rd_cnt_lookahead;
-                rd_request_pending <= 1'b1;
-            end else begin
-                rd_request_pending <= 1'b0;
-            end
-        end
-    end
-    
-    // ========================================
-    // 6. Определение валидности данных из памяти
-    // ========================================
-    // Данные из памяти валидны, когда:
-    // - Прошло 2 такта после запроса чтения
-    // - Запрошенный адрес соответствует текущему rd_cnt
-    logic mem_data_valid;
-    
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            mem_data_valid <= 1'b0;
-        end else begin
-            // Данные становятся валидными через 2 такта после запроса
-            // и если запрошенный адрес соответствует rd_cnt
-            if (rd_request_pending && (rd_addr_requested == rd_cnt)) begin
-                mem_data_valid <= 1'b1;
-            end else if (rd_en && !empty) begin
-                // Сбрасываем после чтения
-                mem_data_valid <= 1'b0;
-            end
-        end
-    end
-    
-    // ========================================
-    // 7. Формирование выходных данных с нулевой задержкой
-    // ========================================
-    // Регистр для bypass данных (свежезаписанных)
-    logic [DATA_WIDTH-1:0] bypass_data;
-    logic                  bypass_valid;
-    
-    // Регистр для данных из памяти (готовы к выдаче)
-    logic [DATA_WIDTH-1:0] mem_ready_data;
-    logic                  mem_ready_valid;
-    
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            bypass_data  <= '0;
-            bypass_valid <= 1'b0;
-            mem_ready_data <= '0;
-            mem_ready_valid <= 1'b0;
-        end else begin
-            // --- Bypass logic ---
-            // Если FIFO был пуст и происходит запись, данные сразу доступны
-            if (wr_en && !full && (rd_cnt == wr_cnt)) begin
-                bypass_data  <= wr_data;
-                bypass_valid <= 1'b1;
-            end else if (rd_en && !empty && bypass_valid) begin
-                // Если прочитали bypass данные, сбрасываем флаг
-                bypass_valid <= 1'b0;
-            end
-            
-            // --- Memory data ready ---
-            // Данные из памяти готовы к выдаче
-            if (mem_data_valid) begin
-                mem_ready_data  <= mem_rdata_pipe2;
-                mem_ready_valid <= 1'b1;
-            end else if (rd_en && !empty && mem_ready_valid) begin
-                // Если прочитали данные из памяти, сбрасываем флаг
-                mem_ready_valid <= 1'b0;
-            end
-        end
-    end
-    
-    // ========================================
-    // 8. Выходной мультиплексор
-    // ========================================
-    always_comb begin
-        // Приоритет: bypass (свежезаписанные данные) > данные из памяти
-        if (bypass_valid) begin
-            rd_data = bypass_data;
-            valid   = 1'b1;
-        end else if (mem_ready_valid) begin
-            rd_data = mem_ready_data;
-            valid   = 1'b1;
-        end else if (!empty && (rd_cnt == wr_cnt - 1)) begin
-            // Специальный случай: данные только что записаны в прошлом такте
-            // и ещё не попали в память для чтения
-            // (это обрабатывается bypass логикой)
-            rd_data = '0;
-            valid   = 1'b0;
-        end else begin
-            rd_data = '0;
-            valid   = 1'b0;
-        end
-    end
-    
-    // ========================================
-    // 9. Флаги full и empty
-    // ========================================
-    logic [ADDR_WIDTH:0] count;
-    
-    // Количество элементов в FIFO с учётом pending операций
-    always_comb begin
-        count = wr_cnt - rd_cnt;
-        // Корректировка для wrap-around
-        if (wr_cnt < rd_cnt) begin
-            count = wr_cnt + DEPTH - rd_cnt;
-        end
-    end
-    
-    assign empty = (count == 0);
-    assign full  = (count >= DEPTH - 1);  // Оставляем один слот для избежания проблем
-    
-    // ========================================
-    // 10. Альтернативная реализация с использованием
-    //     теневого регистра (shadow register)
-    // ========================================
-    /*
-    // Более простой подход: использовать shadow register
-    // для хранения последних записанных данных
-    logic [DATA_WIDTH-1:0] shadow_data;
-    logic                  shadow_valid;
-    
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            shadow_data <= '0;
-            shadow_valid <= 1'b0;
-        end else begin
-            if (wr_en && !full) begin
-                shadow_data <= wr_data;
-                if (rd_cnt == wr_cnt) begin  // FIFO был пуст
-                    shadow_valid <= 1'b1;
-                end
-            end else if (rd_en && !empty && shadow_valid) begin
-                shadow_valid <= 1'b0;
-            end
-        end
-    end
-    */
-    
-endmodule
-    
-
-module my_look_ahead_fifo #(
     parameter DATA_WIDTH = 32,
     parameter DEPTH      = 64
 )(
@@ -793,7 +552,10 @@ module my_look_ahead_fifo #(
             end
             STALL: begin
                 if(out_fire)
-                    next_state = RESUME;
+                    if(items <= MEM_PIPE_DELAY)
+                        next_state = RELEASE;
+                    else
+                        next_state = RESUME;
             end
             RESUME: begin
                 if(!rd_en)
@@ -813,7 +575,7 @@ module my_look_ahead_fifo #(
             MEM_BREAK: begin
                 if(rd_en)
                     next_state = RESUME;
-                else if((head_pointer == MEM_PIPE_DELAY-2) & (!rd_en)) //highest -1
+                else if((head_pointer >= MEM_PIPE_DELAY-2) & (!rd_en)) //highest -1
                     next_state = STALL;
             end
             RELEASE: begin
@@ -850,14 +612,15 @@ module my_look_ahead_fifo #(
                 tail_data[i] <= 0;
             end
         end else begin
-            mem_readed <= {`SHIFT_UD(mem_readed), out_fire & (items > MEM_PIPE_DELAY)};
+            // mem_readed <= {`SHIFT_UD(mem_readed), out_fire & (items >= MEM_PIPE_DELAY)};
+            mem_readed <= {`SHIFT_UD(mem_readed), out_fire & !empty};
             //
-            if(wr_en && ((current_state == STREAM) || (next_state == PAUSE)  )) begin
+            if(wr_en && ((current_state == STREAM) || (next_state == PAUSE) || (next_state == RELEASE)  )) begin
                 head_data[0] <= wr_data;
                 for(int i=1; i<MEM_PIPE_DELAY; i++) begin
                     head_data[i] <= head_data[i-1];
                 end
-            end else if((mem_readed[MEM_PIPE_DELAY-1] & (current_state != STALL) & (items >= MEM_PIPE_DELAY))) begin
+            end else if((mem_readed[MEM_PIPE_DELAY-1] && (current_state != STALL) && (current_state != PAUSE)) && (current_state != RELEASE)) begin
                 head_data[0] <= mem_rdata;
                 for(int i=1; i<MEM_PIPE_DELAY; i++) begin
                     head_data[i] <= head_data[i-1];

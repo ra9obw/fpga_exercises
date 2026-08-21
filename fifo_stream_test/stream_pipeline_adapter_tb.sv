@@ -226,6 +226,25 @@ module stream_pipeline_adapter_tb();
         reset_counters();
         
 
+        // Модифицированный тестовый код с циклическим увеличением длины данных
+        for (int data_len = 1; data_len <= PIPE_DLY * 2; data_len++) begin
+            test_count++;
+            repeat (10) @(posedge clk);
+            $display("\n=== TEST%d push %0d items, no wait, set out ready for %0d cycles ===", 
+                    test_count, data_len, data_len);
+            #10
+            assert (in_ready) else $display("in should be ready %t", $time);
+            
+            fork
+                push_data(data_len, 3*PIPE_DLY, 3000);
+                drive_out_ready(data_len, 3*PIPE_DLY, PIPE_DLY+data_len);
+            join
+            repeat (10) @(posedge clk);
+            check_results();
+            reset_counters();
+        end
+
+
         test_count++;
         repeat (10) @(posedge clk);
         $display("\n=== TEST%d push PIPE_DLY items, no wait, set out ready for PIPE_DLY cycles ===", test_count);

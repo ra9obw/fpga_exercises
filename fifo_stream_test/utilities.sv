@@ -82,49 +82,50 @@ endgenerate
     // Порт чтения: также работает по положительному фронту тактового сигнала
 
     always @(posedge clk) begin
-        read_data <= /*read_data_buf;//*/ram[read_addr_reg];
+        // read_data <= read_data_buf;
+        read_data <= ram[read_addr_reg];
     end
 
 endmodule
 
 
-module fifo_bram #(
-    parameter DATA_WIDTH = 8,
-    parameter ADDR_WIDTH = 6  // Глубина FIFO = 2^ADDR_WIDTH
-) (
-    input wire clk,
-    input wire rst_n,
-    input wire wr_en,
-    input wire rd_en,
-    input wire [DATA_WIDTH-1:0] wr_data,
-    output wire [DATA_WIDTH-1:0] rd_data,
-    output wire full,
-    output wire empty
-);
+// module fifo_bram #(
+//     parameter DATA_WIDTH = 8,
+//     parameter ADDR_WIDTH = 6  // Глубина FIFO = 2^ADDR_WIDTH
+// ) (
+//     input wire clk,
+//     input wire rst_n,
+//     input wire wr_en,
+//     input wire rd_en,
+//     input wire [DATA_WIDTH-1:0] wr_data,
+//     output wire [DATA_WIDTH-1:0] rd_data,
+//     output wire full,
+//     output wire empty
+// );
 
-    // Сигналы для связи с RAM
-    wire [ADDR_WIDTH-1:0] wr_addr;
-    wire [ADDR_WIDTH-1:0] rd_addr;
+//     // Сигналы для связи с RAM
+//     wire [ADDR_WIDTH-1:0] wr_addr;
+//     wire [ADDR_WIDTH-1:0] rd_addr;
 
-    // 1. Инстанцирование модуля RAM (который синтезируется как BRAM)
-    simple_dual_port_ram #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .ADDR_WIDTH(ADDR_WIDTH)
-    ) ram_inst (
-        .clk(clk),
-        .we(wr_en & ~full), // Запись разрешена, если не полна
-        .write_addr(wr_addr),
-        .read_addr(rd_addr),
-        .write_data(wr_data),
-        .read_data(rd_data)
-    );
+//     // 1. Инстанцирование модуля RAM (который синтезируется как BRAM)
+//     simple_dual_port_ram #(
+//         .DATA_WIDTH(DATA_WIDTH),
+//         .ADDR_WIDTH(ADDR_WIDTH)
+//     ) ram_inst (
+//         .clk(clk),
+//         .we(wr_en & ~full), // Запись разрешена, если не полна
+//         .write_addr(wr_addr),
+//         .read_addr(rd_addr),
+//         .write_data(wr_data),
+//         .read_data(rd_data)
+//     );
 
-    // 2. Логика управления указателями и флагами
-    reg [ADDR_WIDTH-1:0] wr_ptr;
-    reg [ADDR_WIDTH-1:0] rd_ptr;
-    // ... Здесь реализуется логика инкремента указателей,
-    // сравнения их для генерации сигналов full и empty,
-    // а также обработка сброса (rst_n).
-    // ...
+//     // 2. Логика управления указателями и флагами
+//     reg [ADDR_WIDTH-1:0] wr_ptr;
+//     reg [ADDR_WIDTH-1:0] rd_ptr;
+//     // ... Здесь реализуется логика инкремента указателей,
+//     // сравнения их для генерации сигналов full и empty,
+//     // а также обработка сброса (rst_n).
+//     // ...
 
-endmodule
+// endmodule
